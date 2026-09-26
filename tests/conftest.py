@@ -11,9 +11,13 @@ import os
 os.environ.setdefault("PEW_PTZ_CAMERA_IP", "127.0.0.1")
 os.environ.setdefault("PEW_PTZ_SKIP_FOCUS_CHECK", "1")
 
+import json  # noqa: E402
+from pathlib import Path  # noqa: E402
+
 import pytest  # noqa: E402
 
 from pew_ptz import server  # noqa: E402
+from pew_ptz.presets import PresetStore  # noqa: E402
 
 
 class FakeCamera:
@@ -77,6 +81,30 @@ def chords(monkeypatch):
     monkeypatch.setattr(server, "_kbd", object())
     monkeypatch.setattr(server.time, "sleep", lambda _s: None)
     return sent
+
+
+@pytest.fixture(autouse=True)
+def default_presets(monkeypatch):
+    """Shared-only presets from PEW_PTZ_PRESETS, no state file on disk."""
+    monkeypatch.setattr(server, "presets", PresetStore.load(Path("/nonexistent/presets.json"),
+                                                            server.PRESETS))
+
+
+@pytest.fixture
+def wards(monkeypatch, tmp_path):
+    """Three wards configured via presets.json in a temp dir."""
+    path = tmp_path / "presets.json"
+    path.write_text(json.dumps({
+        "shared": ["Speaker", "Wide"],
+        "wards": [
+            {"name": "1st Ward", "presets": ["Bishopric", "Choir"]},
+            {"name": "2nd Ward", "presets": ["Organ"]},
+            {"name": "3rd Ward", "presets": []},
+        ],
+    }), encoding="utf-8")
+    store = PresetStore.load(path, [])
+    monkeypatch.setattr(server, "presets", store)
+    return store
 
 
 @pytest.fixture

@@ -34,8 +34,15 @@
     </button>
   </div>
 
-  <div class="card">
-    <h2>Presets</h2>
+  <div class="card" id="presetsCard">
+    <div class="card-head">
+      <h2>Presets</h2>
+      <select id="wardSelect" aria-label="Active ward" hidden></select>
+      <button class="edit-toggle" id="editToggle" aria-pressed="false">Edit</button>
+    </div>
+    <div class="edit-banner" id="editBanner" hidden>
+      Edit mode: aim the camera, then tap the preset to save this view to it.
+    </div>
     <div class="presets" id="presets"></div>
   </div>
 

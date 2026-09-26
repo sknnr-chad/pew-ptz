@@ -18,3 +18,7 @@ dist/
 
 # Output of scripts/probe-camera.ps1
 probe-presets.json
+
+# Per-install preset config and the server-wide active ward
+presets.json
+active-ward.json

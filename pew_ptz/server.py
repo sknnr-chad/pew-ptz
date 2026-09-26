@@ -22,7 +22,10 @@ Config via environment variables:
                                   camera vendor — see docs/ptz-cameras.md)
     PEW_PTZ_PRESETS               comma-separated preset names. Slot N on
                                   the camera maps to the Nth name (1-indexed).
-                                  default: 9 sacrament-meeting positions
+                                  default: 9 sacrament-meeting positions.
+                                  Ignored when presets.json exists.
+    PEW_PTZ_PRESETS_FILE          shared + per-ward presets (see presets.py).
+                                  Default: presets.json in the working dir
     PEW_PTZ_LOG_DIR               where to put rotating server.log; if unset,
                                   logs only to stdout
     PEW_PTZ_TITLE                 browser tab / home-screen title. Default: pew-ptz
@@ -44,6 +47,7 @@ from pathlib import Path
 from flask import Flask, jsonify, render_template, request
 from waitress import serve
 
+from pew_ptz.presets import PresetStore
 from pew_ptz.visca import (
     PAN_LEFT,
     PAN_RIGHT,
@@ -70,6 +74,7 @@ PRESETS = [
         "Speaker,Choir,Chorister,Piano,Organ,Sacrament,North Stand,Congregation,Back Row",
     ).split(",") if p.strip()
 ]
+PRESETS_FILE = Path(_env("PRESETS_FILE", "presets.json"))
 PAGE_TITLE = _env("TITLE", "pew-ptz")
 SKIP_FOCUS_CHECK = _env("SKIP_FOCUS_CHECK", "").lower() in ("1", "true", "yes")
 
@@ -98,6 +103,7 @@ camera = ViscaIP(CAMERA_IP, VISCA_PORT)
 app = Flask(__name__)
 START_TIME = time.time()
 zoom_reader = ZoomStateReader(poll_interval=1.5)
+presets = PresetStore.load(PRESETS_FILE, PRESETS)
 
 # ---- Zoom hotkeys (Windows-only via pynput) ------------------------------
 
@@ -202,6 +208,7 @@ def _public_state() -> dict:
         "last_toggled": _zoom_state["last_toggled"],
         "zoom_focused": is_zoom,
         "foreground_process": proc,
+        "active_ward": presets.active_ward,  # lets other phones notice a ward change
         "focus_check_active": focus_active,
         # Source-of-truth metadata so the UI can show observed vs assumed:
         "observed": uia["observed"],
@@ -247,7 +254,7 @@ def index():
         title=PAGE_TITLE,
         camera_ip=CAMERA_IP,
         camera_snapshot_path=CAMERA_SNAPSHOT_PATH,
-        presets=PRESETS,
+        presets=presets.payload(),
     )
 
 
@@ -281,10 +288,48 @@ def zoom_action(action: str):
     return jsonify({"status": f"zoom {action}"})
 
 
+@app.get("/presets")
+def presets_list():
+    return jsonify(presets.payload())
+
+
+@app.post("/ward")
+def set_ward():
+    """Set the server-wide active ward. Body: {"ward": "<name>"} or
+    {"ward": null} for shared presets only."""
+    data = request.get_json(silent=True) or {}
+    name = data.get("ward")
+    try:
+        presets.set_active(name)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    log.info("presets: active ward set to %s from %s", name or "(none)", _client_ip())
+    return jsonify(presets.payload())
+
+
+def _client_ip() -> str:
+    return request.remote_addr or "unknown"
+
+
 @app.post("/preset/recall/<int:n>")
 def preset_recall(n: int):
+    # Only the shared presets and the active ward's are reachable, so one
+    # ward's operator can't jump to another ward's framing by accident.
+    if n not in presets.usable() and n != presets.home_slot():
+        return jsonify({"error": f"slot {n} is not in the active ward or shared presets"}), 400
     camera.preset_recall(n)
     return jsonify({"status": f"recalled preset {n}"})
+
+
+@app.post("/preset/save/<int:n>")
+def preset_save(n: int):
+    preset = presets.usable().get(n)
+    if preset is None:
+        return jsonify({"error": f"slot {n} is not in the active ward or shared presets"}), 400
+    camera.preset_set(n)
+    log.info("presets: saved %r (slot %d, ward %s) from %s",
+             preset.name, n, presets.active_ward or "shared", _client_ip())
+    return jsonify({"status": f"saved {preset.name}", "slot": n})
 
 
 @app.get("/healthz")
@@ -367,7 +412,9 @@ def http_toggle_air():
 def main():
     log.info("pew-ptz starting on http://0.0.0.0:%s", SERVER_PORT)
     log.info("  Camera:        %s:%s", CAMERA_IP, VISCA_PORT)
-    log.info("  Presets:       %s", PRESETS)
+    log.info("  Presets:       %d shared, %d wards (%s)", len(presets.shared),
+             len(presets.wards), PRESETS_FILE if PRESETS_FILE.exists() else "PEW_PTZ_PRESETS")
+    log.info("  Active ward:   %s", presets.active_ward or "(none)")
     log.info("  Open on phone: http://<this-pc-ip>:%s", SERVER_PORT)
     if _kbd is None:
         log.warning("  pynput keyboard unavailable — Zoom hotkeys disabled.")

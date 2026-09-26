@@ -1,4 +1,4 @@
-const PRESETS = window.PEW_PRESETS || [];
+let presetData = window.PEW_PRESETS || { shared: [], wards: [], active_ward: null, home_slot: 1 };
 let speed = 6;
 
 const toast = document.getElementById("toast");
@@ -59,8 +59,9 @@ document.querySelectorAll("button[data-zoom]").forEach(btn => {
     () => post(`/zoom/stop`));
 });
 
-// "HOME" = jump to preset 1 (Speaker), the most useful default framing
-document.getElementById("homeBtn").addEventListener("click", () => post("/preset/recall/1"));
+// "HOME" = the active ward's first preset, else the first shared preset.
+document.getElementById("homeBtn").addEventListener("click",
+  () => post(`/preset/recall/${presetData.home_slot}`));
 
 document.querySelectorAll(".mode button[data-speed]").forEach(btn => {
   btn.addEventListener("click", () => {
@@ -72,17 +73,93 @@ document.querySelectorAll(".mode button[data-speed]").forEach(btn => {
 });
 
 // ---- presets ----
+// The active ward is server-wide: changing it here changes it for every
+// phone, and the status poll below re-renders when another phone changes it.
 const presetsEl = document.getElementById("presets");
-PRESETS.forEach((name, i) => {
+const presetsCard = document.getElementById("presetsCard");
+const wardSelect = document.getElementById("wardSelect");
+const editToggle = document.getElementById("editToggle");
+const editBanner = document.getElementById("editBanner");
+let editing = false;
+
+function setEditing(on) {
+  editing = on;
+  editToggle.setAttribute("aria-pressed", on ? "true" : "false");
+  editToggle.textContent = on ? "Done" : "Edit";
+  editBanner.hidden = !on;
+  presetsCard.classList.toggle("editing", on);
+}
+editToggle.addEventListener("click", () => setEditing(!editing));
+
+function presetButton(p, cls) {
   const b = document.createElement("button");
-  b.textContent = name;
-  const slot = i + 1;
+  b.textContent = p.name;
+  if (cls) b.classList.add(cls);
   b.addEventListener("click", async () => {
-    await post(`/preset/recall/${slot}`);
-    flash(name);
+    if (!editing) {
+      await post(`/preset/recall/${p.slot}`);
+      flash(p.name);
+      return;
+    }
+    const where = presetData.active_ward && cls ? presetData.active_ward : "shared";
+    if (!confirm(`Save the current view as "${p.name}" (${where})?`)) return;
+    const j = await post(`/preset/save/${p.slot}`);
+    if (j && j.status) flash(`Saved ${p.name}`);
+    setEditing(false);  // one save per trip into edit mode
   });
-  presetsEl.appendChild(b);
+  return b;
+}
+
+function groupLabel(text) {
+  const d = document.createElement("div");
+  d.className = "group-label";
+  d.textContent = text;
+  return d;
+}
+
+function renderPresets() {
+  presetsEl.replaceChildren();
+  const ward = presetData.wards.find(w => w.name === presetData.active_ward);
+  if (ward && ward.presets.length) {
+    presetsEl.appendChild(groupLabel(ward.name));
+    ward.presets.forEach(p => presetsEl.appendChild(presetButton(p, "ward-preset")));
+    if (presetData.shared.length) presetsEl.appendChild(groupLabel("Shared"));
+  }
+  presetData.shared.forEach(p => presetsEl.appendChild(presetButton(p, null)));
+
+  wardSelect.hidden = presetData.wards.length === 0;
+  wardSelect.replaceChildren();
+  const none = new Option("No ward", "");
+  wardSelect.appendChild(none);
+  presetData.wards.forEach(w => wardSelect.appendChild(new Option(w.name, w.name)));
+  wardSelect.value = presetData.active_ward || "";
+}
+
+wardSelect.addEventListener("change", async () => {
+  try {
+    const r = await fetch("/ward", {
+      method: "POST", credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ward: wardSelect.value || null }),
+    });
+    const j = await r.json();
+    if (!r.ok) { flash("⚠ " + (j.error || r.statusText)); return; }
+    presetData = j;
+    renderPresets();
+    flash(j.active_ward ? `Ward: ${j.active_ward}` : "No ward");
+  } catch (e) {
+    flash("⚠ network");
+  }
 });
+
+async function reloadPresets() {
+  try {
+    const r = await fetch("/presets", { credentials: "same-origin" });
+    if (r.ok) { presetData = await r.json(); renderPresets(); }
+  } catch (e) { /* next poll will retry */ }
+}
+
+renderPresets();
 
 // ---- zoom meeting ----
 document.getElementById("airBtn").addEventListener("click", async () => {
@@ -156,7 +233,11 @@ function renderZoomStatus(s) {
 async function refreshZoomStatus() {
   try {
     const r = await fetch("/zoom_meeting/state", { credentials: "same-origin" });
-    if (r.ok) renderZoomStatus(await r.json());
+    if (r.ok) {
+      const st = await r.json();
+      renderZoomStatus(st);
+      if ((st.active_ward || null) !== (presetData.active_ward || null)) reloadPresets();
+    }
   } catch (e) { /* network blip — ignore */ }
 }
 refreshZoomStatus();

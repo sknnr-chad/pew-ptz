@@ -183,6 +183,49 @@ on Windows (Python 3.12 and 3.14) for every push to `main` and every PR.
 
 ---
 
+## Per-ward presets
+
+Several wards can share the chapel camera, each with its own named positions
+plus a set of shared ones. Copy `presets.example.json` to `presets.json` in the
+install folder and edit the names:
+
+```json
+{
+  "shared": ["Speaker", "Pulpit", "Wide"],
+  "wards": [
+    { "name": "1st Ward", "presets": ["Bishopric", "Choir"] },
+    { "name": "2nd Ward", "presets": ["Bishopric", "Organ"] }
+  ]
+}
+```
+
+Restart the controller after editing. Each preset's camera slot comes from its
+position in its list:
+
+| Block | Camera slots | Limit |
+|---|---|---|
+| Shared | 1–15 | 15 presets |
+| Ward 1, 2, 3, … | 16–31, 32–47, 48–63, … | 16 presets each, up to 14 wards |
+
+Because slots follow list order, **add new names at the end** of a list;
+inserting or reordering names makes them point at different camera slots.
+
+- **Choosing the ward:** the picker in the Presets card sets the active ward
+  for *every* phone, and it survives restarts (`active-ward.json`). A ward's
+  presets are listed first, then the shared ones. HOME goes to the ward's first
+  preset. Only the shared presets and the active ward's can be recalled.
+- **Saving positions from the phone:** tap **Edit**, aim the camera, tap the
+  preset and confirm. Edit mode turns off after each save. Every save is logged
+  with the phone's IP in `server.log`.
+- **No `presets.json`?** `PEW_PTZ_PRESETS` names are used as shared presets in
+  slots 1–9, exactly as before. A malformed file is logged and ignored the same
+  way, so a typo never takes the camera controls away.
+
+`presets.json` and `active-ward.json` are git-ignored, so `git pull` never
+touches them.
+
+---
+
 ## Probing a camera
 
 `scripts/probe-camera.ps1` checks what a camera supports: ping, the snapshot
@@ -212,8 +255,9 @@ All config is environment variables. No config file, no secrets.
 | `PEW_PTZ_VISCA_PORT` | `52381` | VISCA-over-IP UDP port |
 | `PEW_PTZ_SERVER_PORT` | `8080` | HTTP listen port (served by Waitress) |
 | `PEW_PTZ_CAMERA_SNAPSHOT_PATH` | `/snapshot.jpg` | HTTP path on the camera that returns a JPEG (see Compatibility table above) |
-| `PEW_PTZ_PRESETS` | (9 chapel presets) | Comma-separated. Slot N on the camera maps to the Nth name (1-indexed). Example: `Wide,Speaker,Audience,Stage Left,Stage Right` |
+| `PEW_PTZ_PRESETS` | (9 chapel presets) | Comma-separated. Slot N on the camera maps to the Nth name (1-indexed). Example: `Wide,Speaker,Audience,Stage Left,Stage Right`. Ignored when `presets.json` exists. |
 | `PEW_PTZ_LOG_DIR` | unset | If set, writes `server.log` (rotating, 1 MB × 5) here. The installer points this at `<InstallDir>\logs`. |
+| `PEW_PTZ_PRESETS_FILE` | `presets.json` | Shared + per-ward presets (see [Per-ward presets](#per-ward-presets)). Relative to the working directory, which the installer sets to `<InstallDir>`. |
 | `PEW_PTZ_TITLE` | `pew-ptz` | Browser-tab and home-screen title, e.g. `Chapel PTZ` |
 | `PEW_PTZ_SKIP_FOCUS_CHECK` | unset | Set to `1` to bypass the "Zoom must be foreground" guard. Useful for UI testing on a dev box without Zoom. |
 

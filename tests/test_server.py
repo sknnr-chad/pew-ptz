@@ -171,3 +171,62 @@ def test_toggle_allowed_when_zoom_focused(client, chords, monkeypatch):
     monkeypatch.setattr(server, "foreground_info", lambda: (True, "Zoom Meeting", "Zoom.exe"))
     assert client.post("/zoom_meeting/toggle_mic").status_code == 200
     assert chords == ["a"]
+
+
+# ---- per-ward presets --------------------------------------------------------
+
+
+def test_presets_without_config_are_shared_only(client):
+    j = client.get("/presets").get_json()
+    assert [p["name"] for p in j["shared"]] == server.PRESETS
+    assert j["wards"] == [] and j["active_ward"] is None
+
+
+def test_set_ward_is_server_wide(client, wards):
+    r = client.post("/ward", json={"ward": "1st Ward"})
+    assert r.status_code == 200
+    assert r.get_json()["active_ward"] == "1st Ward"
+    # Another phone sees it on the presets list and on the status poll.
+    other = server.app.test_client()
+    assert other.get("/presets").get_json()["active_ward"] == "1st Ward"
+    assert other.get("/zoom_meeting/state").get_json()["active_ward"] == "1st Ward"
+
+
+def test_set_unknown_ward_is_400(client, wards):
+    assert client.post("/ward", json={"ward": "9th Ward"}).status_code == 400
+
+
+def test_clear_ward(client, wards):
+    client.post("/ward", json={"ward": "1st Ward"})
+    assert client.post("/ward", json={"ward": None}).get_json()["active_ward"] is None
+
+
+def test_recall_limited_to_shared_and_active_ward(client, wards, camera):
+    assert client.post("/preset/recall/1").status_code == 200       # shared
+    assert client.post("/preset/recall/16").status_code == 400      # 1st Ward, not active
+    client.post("/ward", json={"ward": "1st Ward"})
+    assert client.post("/preset/recall/16").status_code == 200
+    assert client.post("/preset/recall/32").status_code == 400      # 2nd Ward
+    assert [c for c in camera.calls if c[0] == "preset_recall"] == [
+        ("preset_recall", (1,), {}), ("preset_recall", (16,), {})]
+
+
+def test_save_preset(client, wards, camera):
+    client.post("/ward", json={"ward": "2nd Ward"})
+    r = client.post("/preset/save/32")
+    assert r.status_code == 200
+    assert r.get_json()["status"] == "saved Organ"
+    assert camera.calls[-1] == ("preset_set", (32,), {})
+
+
+def test_save_rejects_other_wards_and_unused_slots(client, wards, camera):
+    client.post("/ward", json={"ward": "2nd Ward"})
+    assert client.post("/preset/save/16").status_code == 400   # 1st Ward's slot
+    assert client.post("/preset/save/3").status_code == 400    # no shared preset 3
+    assert not [c for c in camera.calls if c[0] == "preset_set"]
+
+
+def test_index_embeds_ward_presets(client, wards):
+    client.post("/ward", json={"ward": "1st Ward"})
+    body = client.get("/").get_data(as_text=True)
+    assert "Bishopric" in body and "1st Ward" in body
