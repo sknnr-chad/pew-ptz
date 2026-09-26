@@ -156,6 +156,21 @@ will say "keyboard unavailable" — fine, camera control still works.
 
 ---
 
+## Dependencies
+
+`pyproject.toml` declares version ranges; `requirements.txt` is the
+hash-pinned lockfile the installer actually installs from, so every host
+gets the same tested versions. It is resolved for Windows / Python 3.12+.
+After changing dependencies in `pyproject.toml`, regenerate it with:
+
+```bash
+uv pip compile pyproject.toml --python-version 3.12 --python-platform windows --generate-hashes -o requirements.txt
+```
+
+Dependabot proposes weekly updates to both files.
+
+---
+
 ## Configuration
 
 All config is environment variables. No config file, no secrets.

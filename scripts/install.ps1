@@ -99,7 +99,12 @@ Start-Sleep -Milliseconds 400
 
 Write-Step "Installing pew-ptz into venv"
 & $venvPython -m pip install --upgrade pip --disable-pip-version-check | Out-Null
-& $venvPython -m pip install --upgrade --disable-pip-version-check $InstallDir
+# Dependencies come from the hash-pinned lockfile so every install gets the
+# exact versions that were tested; the package itself goes in with --no-deps.
+$lockFile = Join-Path $InstallDir "requirements.txt"
+& $venvPython -m pip install --disable-pip-version-check --require-hashes -r $lockFile
+if ($LASTEXITCODE -ne 0) { throw "pip install of locked dependencies failed" }
+& $venvPython -m pip install --upgrade --no-deps --disable-pip-version-check $InstallDir
 if ($LASTEXITCODE -ne 0) { throw "pip install of pew-ptz failed" }
 Write-OK "Package installed"
 
