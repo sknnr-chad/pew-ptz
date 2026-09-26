@@ -42,7 +42,8 @@ param(
   [switch]$VerifyOnly,
   [switch]$Force,
   [string]$ResultsFile  = (Join-Path $PWD "probe-presets.json"),
-  [int]   $Tolerance    = 8   # position units a recall may miss by
+  [int]   $Tolerance    = 8,    # position units a recall may miss by
+  [int]   $SettleMs     = 1500  # extra wait after each move
 )
 
 $ErrorActionPreference = "Stop"
@@ -228,19 +229,45 @@ function Test-Near($a, $b) {
 }
 
 function Invoke-Recall([int]$slot) {
-  $r = Invoke-Visca ([byte[]](0x81, 0x01, 0x04, 0x3F, 0x02, $slot, 0xFF))
+  $r = Invoke-Move ([byte[]](0x81, 0x01, 0x04, 0x3F, 0x02, $slot, 0xFF)) "recall slot $slot"
+  [void](Wait-Settled)
+  Start-Sleep -Milliseconds $SettleMs
   $p = Wait-Settled
   return @{ reply = $r; pos = $p }
+}
+
+# Send a movement command, retrying while the camera says it's busy. Some
+# cameras reject a move while the previous one is still running ("not
+# executable" / "command buffer full") and report the destination as their
+# position before they arrive, so polling position alone isn't enough.
+function Invoke-Move([byte[]]$cmd, [string]$what) {
+  for ($try = 1; $try -le 20; $try++) {
+    $r = Invoke-Visca $cmd
+    if (-not $r.ok -and $r.error -eq "ACK but no completion") { $r.ok = $true }  # accepted
+    if ($r.ok) {
+      if ($try -gt 1) { Write-Info "$what accepted on attempt $try" }
+      return $r
+    }
+    if ($r.error -notin @("not executable", "command buffer full")) {
+      Write-Info "$what rejected: $($r.error)"
+      return $r
+    }
+    if ($try -eq 1) { Write-Info "$what`: camera busy ($($r.error)); retrying" }
+    Start-Sleep -Milliseconds 500
+  }
+  Write-Info "$what still rejected after 20 attempts"
+  return $r
 }
 
 function Set-Absolute($pos) {
   $cmd = [byte[]](0x81, 0x01, 0x06, 0x02, 0x10, 0x10) + (Split-Nibbles $pos.pan) +
          (Split-Nibbles $pos.tilt) + [byte[]](0xFF)
-  $r = Invoke-Visca $cmd
+  $r = Invoke-Move $cmd ("move to pan={0} tilt={1}" -f $pos.pan, $pos.tilt)
   if ($r.ok -and $null -ne $pos.zoom) {
-    [void](Invoke-Visca ([byte[]](0x81, 0x01, 0x04, 0x47) + (Split-Nibbles $pos.zoom) + [byte[]](0xFF)))
+    [void](Invoke-Move ([byte[]](0x81, 0x01, 0x04, 0x47) + (Split-Nibbles $pos.zoom) + [byte[]](0xFF)) "zoom")
   }
   [void](Wait-Settled)
+  Start-Sleep -Milliseconds $SettleMs  # let the mechanics actually finish
   return $r
 }
 
@@ -437,7 +464,7 @@ foreach ($slot in $Slots) {
   $pos = Move-ForSlot $k
   $k++
 
-  $set = Invoke-Visca ([byte[]](0x81, 0x01, 0x04, 0x3F, 0x01, $slot, 0xFF))
+  $set = Invoke-Move ([byte[]](0x81, 0x01, 0x04, 0x3F, 0x01, $slot, 0xFF)) "save slot $slot"
   $entry = [ordered]@{ slot = $slot; stored = $set.ok; set_error = $set.error;
                        pan = $null; tilt = $null; zoom = $null; recalled = $null }
   if ($null -ne $pos) { $entry.pan = $pos.pan; $entry.tilt = $pos.tilt; $entry.zoom = $pos.zoom }
