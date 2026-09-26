@@ -16,7 +16,7 @@ dependencies = [
 
 [project.optional-dependencies]
 # Pinned to a minor: ruff adds/changes lint rules between minors.
-dev = ["ruff~=0.16.9"]
+dev = ["ruff~=0.16.9", "pytest~=9.1"]
 
 [project.scripts]
 pew-ptz = "pew_ptz.server:main"
@@ -34,3 +34,6 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

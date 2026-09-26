@@ -20,7 +20,13 @@ updates:
           - "minor"
           - "patch"
 
-  # NOTE: no github-actions block yet — Dependabot errors with
-  # "dependency_file_not_found" if the ecosystem is configured but no
-  # workflows exist. Add a block here in the same PR that introduces the
-  # first .github/workflows/*.yml file.
+  # Workflow actions are pinned to commit SHAs; Dependabot bumps the SHA
+  # and the version comment together.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels:
+      - "dependencies"
+      - "github-actions"

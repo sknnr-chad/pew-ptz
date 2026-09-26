@@ -169,6 +169,18 @@ uv pip compile pyproject.toml --python-version 3.12 --python-platform windows --
 
 Dependabot proposes weekly updates to both files.
 
+### Tests
+
+```bash
+pip install -e ".[dev]"
+ruff check .
+pytest
+```
+
+The tests replace the camera and keyboard with stubs, so they never move a
+real camera or press keys on your desktop. CI runs ruff on Linux and the tests
+on Windows (Python 3.12 and 3.14) for every push to `main` and every PR.
+
 ---
 
 ## Configuration

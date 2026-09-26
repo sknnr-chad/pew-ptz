@@ -39,12 +39,17 @@ import time
 from ctypes import wintypes
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
+
 from flask import Flask, jsonify, render_template_string, request
 
 from pew_ptz.visca import (
+    PAN_LEFT,
+    PAN_RIGHT,
+    PAN_STOP,
+    TILT_DOWN,
+    TILT_STOP,
+    TILT_UP,
     ViscaIP,
-    PAN_LEFT, PAN_RIGHT, PAN_STOP,
-    TILT_UP, TILT_DOWN, TILT_STOP,
 )
 from pew_ptz.zoom_state import ZoomStateReader
 
@@ -94,7 +99,7 @@ zoom_reader = ZoomStateReader(poll_interval=1.5)
 # ---- Zoom hotkeys (Windows-only via pynput) ------------------------------
 
 try:
-    from pynput.keyboard import Key, Controller
+    from pynput.keyboard import Controller, Key
     _kbd = Controller()
 except Exception as e:  # pragma: no cover - non-Windows / headless
     _kbd = None
@@ -180,8 +185,13 @@ def _public_state() -> dict:
     uia = zoom_reader.get()
 
     # Prefer observed (UIA) values when we have them; fall back to optimistic.
-    video_on = uia["video_on"] if uia["observed"] and uia["video_on"] is not None else _zoom_state["video_on"]
-    mic_on   = uia["mic_on"]   if uia["observed"] and uia["mic_on"]   is not None else _zoom_state["mic_on"]
+    def pick(key: str) -> bool:
+        if uia["observed"] and uia[key] is not None:
+            return uia[key]
+        return _zoom_state[key]
+
+    video_on = pick("video_on")
+    mic_on = pick("mic_on")
 
     return {
         "video_on": video_on,
@@ -246,7 +256,7 @@ def index():
 def ptz_move(direction: str):
     if direction not in DIRS:
         return jsonify({"error": "unknown direction"}), 400
-    speed = int(request.args.get("speed", "12"))
+    speed = request.args.get("speed", 12, type=int)
     pan_dir, tilt_dir = DIRS[direction]
     camera.pan_tilt(pan_dir, tilt_dir, pan_speed=speed, tilt_speed=speed)
     return jsonify({"status": f"moving {direction}"})
@@ -260,7 +270,7 @@ def ptz_stop():
 
 @app.post("/zoom/<action>")
 def zoom_action(action: str):
-    speed = int(request.args.get("speed", "2"))
+    speed = request.args.get("speed", 2, type=int)
     if action == "tele":
         camera.zoom_tele(speed)
     elif action == "wide":
@@ -369,7 +379,8 @@ INDEX_HTML = r"""<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <meta name="viewport"
+        content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
   <title>Chapel RL500 PTZ</title>
   <!-- PWA: lets the operator "Add to Home Screen" and launch full-screen,
        which on a phone-as-controller is a big deal (no browser chrome
@@ -622,7 +633,8 @@ INDEX_HTML = r"""<!doctype html>
   document.querySelectorAll(".mode button[data-speed]").forEach(btn => {
     btn.addEventListener("click", () => {
       speed = parseInt(btn.dataset.speed, 10);
-      document.querySelectorAll(".mode button[data-speed]").forEach(b => b.classList.remove("active"));
+      document.querySelectorAll(".mode button[data-speed]")
+        .forEach(b => b.classList.remove("active"));
       btn.classList.add("active");
     });
   });
@@ -738,7 +750,8 @@ INDEX_HTML = r"""<!doctype html>
       v.setAttribute("loop", "");
       v.muted = true;
       v.loop = true;
-      v.style.cssText = "position:fixed;width:1px;height:1px;opacity:0;pointer-events:none;left:-10px;top:-10px;";
+      v.style.cssText = "position:fixed;width:1px;height:1px;opacity:0;" +
+        "pointer-events:none;left:-10px;top:-10px;";
       const s1 = document.createElement("source");
       s1.src = "/static/silent.webm"; s1.type = "video/webm";
       const s2 = document.createElement("source");

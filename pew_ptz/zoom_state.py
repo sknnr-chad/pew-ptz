@@ -24,13 +24,13 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 log = logging.getLogger("pew_ptz.zoom_state")
 
 try:
-    import uiautomation as auto  # type: ignore
     import comtypes  # comes in with uiautomation
+    import uiautomation as auto  # type: ignore
     _UIA_OK = True
 except Exception as e:  # pragma: no cover - non-Windows / missing dep
     auto = None  # type: ignore
@@ -313,10 +313,12 @@ class ZoomStateReader:
                 except Exception:
                     n = ""
                 if mic_on is None:
-                    if any(s in n for s in _MIC_ON_NAMES):
-                        mic_on = True
-                    elif any(s in n for s in _MIC_OFF_NAMES):
+                    # OFF first: "unmute my microphone" contains "mute my
+                    # microphone", so checking ON first misreads a muted mic.
+                    if any(s in n for s in _MIC_OFF_NAMES):
                         mic_on = False
+                    elif any(s in n for s in _MIC_ON_NAMES):
+                        mic_on = True
                 if video_on is None:
                     if any(s in n for s in _VID_ON_NAMES):
                         video_on = True
