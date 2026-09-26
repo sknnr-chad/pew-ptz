@@ -259,16 +259,31 @@ function Invoke-Move([byte[]]$cmd, [string]$what) {
   return $r
 }
 
+# Absolute pan/tilt move that checks it arrived. Some cameras accept a move
+# (ACK + completion) and silently drop it, e.g. right after a preset save
+# while they write memory, so resend until the position is near the target.
 function Set-Absolute($pos) {
   $cmd = [byte[]](0x81, 0x01, 0x06, 0x02, 0x10, 0x10) + (Split-Nibbles $pos.pan) +
          (Split-Nibbles $pos.tilt) + [byte[]](0xFF)
-  $r = Invoke-Move $cmd ("move to pan={0} tilt={1}" -f $pos.pan, $pos.tilt)
-  if ($r.ok -and $null -ne $pos.zoom) {
-    [void](Invoke-Move ([byte[]](0x81, 0x01, 0x04, 0x47) + (Split-Nibbles $pos.zoom) + [byte[]](0xFF)) "zoom")
+  $what = "move to pan={0} tilt={1}" -f $pos.pan, $pos.tilt
+  for ($try = 1; $try -le 5; $try++) {
+    $r = Invoke-Move $cmd $what
+    if (-not $r.ok) { return $r }
+    if ($null -ne $pos.zoom) {
+      [void](Invoke-Move ([byte[]](0x81, 0x01, 0x04, 0x47) + (Split-Nibbles $pos.zoom) + [byte[]](0xFF)) "zoom")
+    }
+    [void](Wait-Settled)
+    Start-Sleep -Milliseconds $SettleMs  # let the mechanics actually finish
+    $now = Get-Position
+    if ($null -eq $now -or (Test-Near $now $pos)) {
+      if ($try -gt 1) { Write-Info "$what arrived on attempt $try" }
+      return $r
+    }
+    Write-Info "$what`: accepted but camera is at $(Format-Pos $now); resending"
+    Start-Sleep -Milliseconds 1000
   }
-  [void](Wait-Settled)
-  Start-Sleep -Milliseconds $SettleMs  # let the mechanics actually finish
-  return $r
+  Write-Info "$what`: camera never arrived after 5 attempts"
+  return @{ ok = $false; replies = @(); error = "move accepted but not performed" }
 }
 
 # ---- 1. Ping --------------------------------------------------------------
