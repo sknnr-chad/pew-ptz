@@ -1,0 +1,105 @@
+:root { color-scheme: dark; }
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+body {
+  margin: 0; padding: 16px; max-width: 560px; margin-inline: auto;
+  font-family: -apple-system, system-ui, "Segoe UI", Roboto, sans-serif;
+  background: #0f172a; color: #e0f2fe;
+}
+.card { background: #111827; border-radius: 18px; padding: 14px; margin-bottom: 18px; }
+.card h2 { margin: 0 0 10px; font-size: 0.85rem; letter-spacing: 0.12em;
+           text-transform: uppercase; color: #fbbf24; }
+button {
+  font: inherit; color: inherit; border: 0; cursor: pointer;
+  background: #1f2937; border-radius: 14px; padding: 14px;
+  touch-action: manipulation; user-select: none;
+}
+button:active { transform: scale(0.96); background: #0b1220; }
+.preview-wrap {
+  background: #000; border-radius: 18px; overflow: hidden;
+  aspect-ratio: 16 / 9;
+  position: sticky; top: 0; z-index: 50;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.6);
+  margin-bottom: 14px;
+}
+.preview-wrap img {
+  width: 100%; height: 100%; display: block; object-fit: cover;
+  background: #000;
+}
+/* Rule-of-thirds composition overlay. Lines stay 1px regardless of
+   the preview's rendered size (vector-effect + preserveAspectRatio).
+   The drop-shadow gives a soft halo so the lines read on both bright
+   windows and dark stage backdrops without doubling the markup. */
+.thirds-overlay {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  pointer-events: none;
+  filter: drop-shadow(0 0 2px rgba(0,0,0,0.75));
+}
+.thirds-overlay line {
+  stroke: rgba(255,255,255,0.72);
+  stroke-width: 1.25;
+  vector-effect: non-scaling-stroke;
+}
+.preview-wrap.no-thirds .thirds-overlay { display: none; }
+.thirds-toggle {
+  position: absolute; bottom: 8px; right: 8px;
+  width: 34px; height: 34px;
+  padding: 0;
+  background: rgba(0,0,0,0.5);
+  border-radius: 6px;
+  display: flex; align-items: center; justify-content: center;
+  opacity: 0.4;
+  transition: opacity 0.15s;
+  z-index: 2;
+}
+.thirds-toggle:hover, .thirds-toggle:active { opacity: 1; }
+.thirds-toggle:active { background: rgba(0,0,0,0.7); transform: scale(0.95); }
+.thirds-toggle svg { width: 18px; height: 18px; fill: none; stroke: white; stroke-width: 1.6; }
+.preview-wrap.no-thirds .thirds-toggle svg { opacity: 0.45; }
+.dpad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
+        max-width: 280px; margin-inline: auto; }
+.dpad button { height: 76px; font-size: 1.6rem; }
+.dpad .home { background: #334155; font-size: 0.95rem; font-weight: 600; }
+.row { display: flex; gap: 10px; justify-content: center; margin-top: 14px; }
+.row .group { flex: 1; text-align: center; }
+.row .label { font-size: 0.7rem; letter-spacing: 0.15em;
+              text-transform: uppercase; color: #94a3b8; margin-bottom: 6px; }
+.row .pair { display: flex; gap: 8px; }
+.row .pair button { flex: 1; padding: 16px 0; font-size: 1.4rem; font-weight: 700; }
+.zoombtn { background: #2563eb; }
+.presets { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.presets button {
+  width: 100%; height: 64px; margin: 0; padding: 6px 8px;
+  font-weight: 600; line-height: 1.15;
+  display: flex; align-items: center; justify-content: center;
+  text-align: center;
+}
+.air {
+  width: 100%; padding: 26px; font-size: 1.4rem; font-weight: 800;
+  border-radius: 18px; letter-spacing: 0.05em;
+  background: #1f2937;          /* neutral fallback before state arrives */
+  transition: background 0.18s ease;
+}
+.air.off-air { background: #047857; }   /* tally-light: safe / not broadcasting */
+.air.on-air  { background: #b91c1c; }   /* tally-light: live right now */
+.air-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+.air-row button { padding: 14px; font-weight: 600; }
+.toast {
+  position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%);
+  background: #0b1220; border: 1px solid #1f2937; padding: 8px 14px;
+  border-radius: 999px; font-size: 0.85rem; opacity: 0; transition: opacity 0.2s;
+  pointer-events: none;
+}
+.toast.show { opacity: 1; }
+.mode { display: flex; gap: 6px; justify-content: center; margin-top: 10px; }
+.mode button { background: #1e293b; padding: 8px 14px; font-size: 0.8rem; }
+.mode button.active { background: #2563eb; }
+.status { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap;
+          margin-top: 12px; font-size: 0.72rem; }
+.pill { padding: 4px 10px; border-radius: 999px; background: #1f2937;
+        color: #cbd5e1; font-weight: 700; letter-spacing: 0.06em; }
+.pill.on   { background: #065f46; color: #d1fae5; }
+.pill.off  { background: #7f1d1d; color: #fecaca; }
+.pill.warn { background: #92400e; color: #fde68a; }
+.pill.air-on  { background: #b91c1c; color: #fff1f2; }
+.pill.air-off { background: #064e3b; color: #d1fae5; }

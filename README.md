@@ -195,6 +195,7 @@ All config is environment variables. No config file, no secrets.
 | `PEW_PTZ_CAMERA_SNAPSHOT_PATH` | `/snapshot.jpg` | HTTP path on the camera that returns a JPEG (see Compatibility table above) |
 | `PEW_PTZ_PRESETS` | (9 chapel presets) | Comma-separated. Slot N on the camera maps to the Nth name (1-indexed). Example: `Wide,Speaker,Audience,Stage Left,Stage Right` |
 | `PEW_PTZ_LOG_DIR` | unset | If set, writes `server.log` (rotating, 1 MB × 5) here. The installer points this at `<InstallDir>\logs`. |
+| `PEW_PTZ_TITLE` | `pew-ptz` | Browser-tab and home-screen title, e.g. `Chapel PTZ` |
 | `PEW_PTZ_SKIP_FOCUS_CHECK` | unset | Set to `1` to bypass the "Zoom must be foreground" guard. Useful for UI testing on a dev box without Zoom. |
 
 ---
@@ -208,12 +209,14 @@ full camera and Zoom control, so keep it on a trusted network segment
 The camera's live snapshot stream goes **directly from the phone to the
 camera** (see the `<img src="http://{camera_ip}/snapshot.jpg">` in the UI).
 Anyone on the LAN who knows the camera IP can pull frames. The camera was
-already reachable directly; proxying it through Flask would add Python in the 400ms snapshot hot path for no
-real gain in a LAN-only deployment. If you care about gating the video,
+already reachable directly; proxying it through Flask would add Python in
+the 400ms snapshot hot path for no real gain in a LAN-only deployment. If you care about gating the video,
 restrict the camera's own network access.
 
-`/healthz` is intended for external monitoring. It discloses camera IP, foreground process, and keyboard status — fine on a
-trusted LAN.
+`/healthz` is intended for external monitoring and returns only uptime and
+whether the keyboard controller loaded. The main UI's state endpoint does
+report the name of the host PC's foreground program (e.g. `zoom.exe`) so the
+operator can see when Zoom has lost focus; window titles are never sent.
 
 ---
 
@@ -249,7 +252,11 @@ trusted LAN.
 pew_ptz/
   __init__.py
   __main__.py        # python -m pew_ptz
-  server.py          # Flask app + inline HTML/CSS/JS UI
+  server.py          # Flask app: routes, Zoom hotkeys, focus check
+  templates/
+    index.html       # the phone UI
+  static/
+    app.css, app.js  # UI styling and behavior; icons, manifest, wake-lock video
   visca.py           # VISCA-over-IP transport + command builders
   zoom_state.py      # UIA-based Zoom mute/video state reader (Windows)
 scripts/

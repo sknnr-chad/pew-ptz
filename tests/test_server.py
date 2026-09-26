@@ -12,10 +12,27 @@ def test_index_renders_presets(client):
         assert name in body
 
 
-def test_healthz(client):
+def test_index_uses_configured_title(client, monkeypatch):
+    monkeypatch.setattr(server, "PAGE_TITLE", "Chapel PTZ")
+    assert "<title>Chapel PTZ</title>" in client.get("/").get_data(as_text=True)
+
+
+def test_static_assets_served(client):
+    assert client.get("/static/app.js").status_code == 200
+    assert client.get("/static/app.css").status_code == 200
+
+
+def test_healthz_is_minimal(client):
     r = client.get("/healthz")
     assert r.status_code == 200
-    assert r.get_json()["ok"] is True
+    assert set(r.get_json()) == {"ok", "uptime_s", "keyboard_ok"}
+
+
+def test_state_never_includes_window_title(client, monkeypatch):
+    monkeypatch.setattr(server, "foreground_info", lambda: (False, "Secret.docx", "winword.exe"))
+    j = client.get("/zoom_meeting/state").get_json()
+    assert "Secret.docx" not in str(j)
+    assert j["foreground_process"] == "winword.exe"
 
 
 @pytest.mark.parametrize(
@@ -113,6 +130,29 @@ def test_toggle_without_keyboard_is_500(client, monkeypatch):
     assert client.post("/zoom_meeting/toggle_mic").status_code == 500
     monkeypatch.setattr(server, "_kbd", None)
     assert client.post("/zoom_meeting/toggle_air").status_code == 500
+
+
+def test_toggle_air_reports_half_done_when_mic_fails(client, monkeypatch):
+    sent = []
+
+    def chord(letter):
+        sent.append(letter)
+        return letter == "v"
+
+    monkeypatch.setattr(server, "_alt_chord", chord)
+    r = client.post("/zoom_meeting/toggle_air")
+    assert r.status_code == 500
+    j = r.get_json()
+    assert sent == ["v", "a"]
+    assert j["video_on"] is False  # video did flip
+    assert j["mic_on"] is True  # mic did not
+
+
+def test_toggle_air_video_failure_changes_nothing(client, monkeypatch):
+    monkeypatch.setattr(server, "_alt_chord", lambda _letter: False)
+    assert client.post("/zoom_meeting/toggle_air").status_code == 500
+    j = client.get("/zoom_meeting/state").get_json()
+    assert j["video_on"] is True and j["mic_on"] is True
 
 
 def test_toggle_blocked_when_zoom_not_focused(client, chords, monkeypatch):
