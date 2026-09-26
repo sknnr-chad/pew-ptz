@@ -183,6 +183,25 @@ on Windows (Python 3.12 and 3.14) for every push to `main` and every PR.
 
 ---
 
+## Probing a camera
+
+`scripts/probe-camera.ps1` checks what a camera supports: ping, the snapshot
+URL, VISCA-over-IP, position inquiries, and how many preset slots actually
+work (including cameras that silently wrap slot numbers). Run it from any
+Windows PC on the camera's network; no install or admin needed.
+
+```powershell
+.\scripts\probe-camera.ps1 -ReadOnly          # safe: no camera movement
+.\scripts\probe-camera.ps1                    # also tests preset slots 64-254
+.\scripts\probe-camera.ps1 -VerifyOnly        # after a power cycle
+```
+
+The full run **overwrites the preset slots it tests and moves the camera**
+(it asks first, and returns the camera to where it started). Choose unused
+slots with `-Slots`, and use `-CameraIp` if the camera isn't at the default.
+
+---
+
 ## Configuration
 
 All config is environment variables. No config file, no secrets.
