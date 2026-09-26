@@ -91,13 +91,6 @@ class ZoomStateReader:
         self._wake = threading.Event()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
-        # Cross-thread debug snapshot: request handlers can't call UIA
-        # directly because the COM object is bound to the poller thread's
-        # apartment. The handler sets _debug_req, the poller fulfils it on
-        # its next wake, and signals _debug_done.
-        self._debug_req = threading.Event()
-        self._debug_done = threading.Event()
-        self._debug_result: dict | None = None
 
     @property
     def available(self) -> bool:
@@ -119,56 +112,6 @@ class ZoomStateReader:
     def trigger_refresh(self) -> None:
         """Wake the poller so we re-read state right after sending a toggle."""
         self._wake.set()
-
-    def debug_snapshot(self, timeout: float = 5.0) -> dict:
-        """Public entry point: ask the poller thread to take a snapshot."""
-        if not _UIA_OK:
-            return {"uia_available": False, "windows": []}
-        if self._thread is None or not self._thread.is_alive():
-            return {"uia_available": True, "error": "poller not running", "windows": []}
-        self._debug_done.clear()
-        self._debug_req.set()
-        self._wake.set()  # wake the poller so it handles us right away
-        if not self._debug_done.wait(timeout):
-            return {"uia_available": True, "error": "timeout waiting for poller", "windows": []}
-        return self._debug_result or {"uia_available": True, "error": "empty", "windows": []}
-
-    def _do_debug_snapshot(self) -> dict:
-        """Runs ON the poller thread, where COM is properly initialized."""
-        root = auto.GetRootControl()
-        windows = []
-        for win in root.GetChildren():
-            try:
-                cls = win.ClassName or ""
-                name = win.Name or ""
-            except Exception:
-                continue
-            if not name and not cls:
-                continue
-            entry = {"name": name, "class": cls}
-            looks_zoomish = (
-                "zoom" in name.lower() or "zoom" in cls.lower()
-                or any(h in cls for h in _MEETING_CLASS_HINTS)
-            )
-            if looks_zoomish:
-                buttons = []
-                stack = [(win, 0)]
-                while stack and len(buttons) < 80:
-                    node, depth = stack.pop()
-                    if depth > self.max_walk_depth:
-                        continue
-                    try:
-                        if node.ControlTypeName == "ButtonControl":
-                            bn = node.Name or ""
-                            if bn:
-                                buttons.append(bn)
-                        for c in node.GetChildren():
-                            stack.append((c, depth + 1))
-                    except Exception:
-                        continue
-                entry["buttons"] = buttons
-            windows.append(entry)
-        return {"uia_available": True, "windows": windows}
 
     def get(self) -> dict:
         with self._lock:
@@ -235,19 +178,6 @@ class ZoomStateReader:
                     # Zoom minimized). Don't clobber the last known values —
                     # just mark observed=False so callers know it's stale.
                     self._state.observed = False
-
-            # Service any pending debug-snapshot request before sleeping
-            if self._debug_req.is_set():
-                self._debug_req.clear()
-                try:
-                    self._debug_result = self._do_debug_snapshot()
-                except Exception as e:
-                    self._debug_result = {
-                        "uia_available": True,
-                        "error": f"{type(e).__name__}: {e}",
-                        "windows": [],
-                    }
-                self._debug_done.set()
 
             self._wake.wait(self.poll_interval)
             self._wake.clear()

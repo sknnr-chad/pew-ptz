@@ -49,9 +49,6 @@ class FakeZoomReader:
     def trigger_refresh(self):
         self.refreshes += 1
 
-    def debug_snapshot(self):
-        return {"uia_available": False, "windows": []}
-
 
 @pytest.fixture
 def camera(monkeypatch):

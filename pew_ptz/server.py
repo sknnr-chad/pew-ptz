@@ -289,15 +289,6 @@ def preset_recall(n: int):
     return jsonify({"status": f"recalled preset {n}"})
 
 
-@app.get("/zoom_meeting/debug")
-def http_zoom_debug():
-    """Lists top-level windows and (for Zoom-ish ones) all button names.
-    Used to figure out why UIA can't find the meeting window on a given
-    Zoom build — point a browser at this while in a meeting and look for
-    the Mute/Video button labels."""
-    return jsonify(zoom_reader.debug_snapshot())
-
-
 @app.get("/healthz")
 def healthz():
     is_zoom, title, proc = foreground_info()
