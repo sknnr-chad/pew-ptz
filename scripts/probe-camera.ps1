@@ -55,30 +55,94 @@ function Hex([byte[]]$b) { ($b | ForEach-Object { $_.ToString("X2") }) -join " "
 
 $summary = [ordered]@{}
 
-# ---- VISCA-over-IP transport ----------------------------------------------
+# ---- VISCA transport --------------------------------------------------------
+# Cameras speak VISCA over the network in a few ways. The probe tries each
+# (see step 3) and uses whichever the camera answers:
+#   - Sony VISCA-over-IP: 8-byte header + VISCA, UDP 52381
+#   - the same, but the camera replies to port 52381 on this PC rather than
+#     to the port the command came from, so we must listen on 52381
+#   - raw VISCA (no header) over UDP (PTZOptics-style, port 1259) or TCP (5678)
 
-$script:udp = New-Object System.Net.Sockets.UdpClient
-$script:udp.Client.ReceiveTimeout = 1500
 $script:seq = 0
-$script:target = New-Object System.Net.IPEndPoint ([Net.IPAddress]::Parse($CameraIp)), $ViscaPort
+$script:tx = $null
+$script:udp = $null
+$script:tcp = $null
+$script:stream = $null
 
-function Receive-Packet {
+function Close-Transport {
+  if ($null -ne $script:udp) { $script:udp.Close(); $script:udp = $null }
+  if ($null -ne $script:tcp) { $script:tcp.Close(); $script:tcp = $null; $script:stream = $null }
+}
+
+# Returns $null on success, else a short reason the transport couldn't open.
+function Open-Transport($t) {
+  Close-Transport
+  $script:tx = $t
+  $script:seq = 0
   try {
-    $ep = New-Object System.Net.IPEndPoint ([Net.IPAddress]::Any), 0
-    return ,$script:udp.Receive([ref]$ep)
-  } catch { return $null }
+    if ($t.proto -eq "udp") {
+      $local = New-Object System.Net.IPEndPoint ([Net.IPAddress]::Any), $t.local
+      $script:udp = New-Object System.Net.Sockets.UdpClient $local
+      $script:udp.Client.ReceiveTimeout = 1500
+    } else {
+      $script:tcp = New-Object System.Net.Sockets.TcpClient
+      $task = $script:tcp.ConnectAsync($CameraIp, $t.port)
+      if (-not $task.Wait(1500) -or -not $script:tcp.Connected) { Close-Transport; return "TCP connect failed" }
+      $script:stream = $script:tcp.GetStream()
+      $script:stream.ReadTimeout = 1500
+    }
+  } catch {
+    Close-Transport
+    return $_.Exception.GetBaseException().Message
+  }
+  return $null
 }
 
 function Send-Raw([int]$ptype, [byte[]]$payload) {
-  $script:seq = ($script:seq + 1) % 0x7FFFFFFF
-  $s = $script:seq
-  $hdr = [byte[]](
-    (($ptype -shr 8) -band 0xFF), ($ptype -band 0xFF),
-    (($payload.Length -shr 8) -band 0xFF), ($payload.Length -band 0xFF),
-    (($s -shr 24) -band 0xFF), (($s -shr 16) -band 0xFF),
-    (($s -shr 8) -band 0xFF), ($s -band 0xFF))
-  $pkt = $hdr + $payload
-  [void]$script:udp.Send($pkt, $pkt.Length, $script:target)
+  if (-not $script:tx.header) {
+    if ($ptype -eq 0x0200) { return }  # control commands only exist with the header
+    $pkt = $payload
+  } else {
+    $script:seq = ($script:seq + 1) % 0x7FFFFFFF
+    $s = $script:seq
+    $hdr = [byte[]](
+      (($ptype -shr 8) -band 0xFF), ($ptype -band 0xFF),
+      (($payload.Length -shr 8) -band 0xFF), ($payload.Length -band 0xFF),
+      (($s -shr 24) -band 0xFF), (($s -shr 16) -band 0xFF),
+      (($s -shr 8) -band 0xFF), ($s -band 0xFF))
+    $pkt = $hdr + $payload
+  }
+  if ($null -ne $script:udp) {
+    [void]$script:udp.Send($pkt, $pkt.Length, $CameraIp, $script:tx.port)
+  } else {
+    $script:stream.Write($pkt, 0, $pkt.Length)
+  }
+}
+
+# Returns @{ seq; body } for one reply, or $null on timeout. seq is -1 when
+# the transport has no header.
+function Receive-Reply {
+  try {
+    if ($null -ne $script:udp) {
+      $ep = New-Object System.Net.IPEndPoint ([Net.IPAddress]::Any), 0
+      $pkt = $script:udp.Receive([ref]$ep)
+      # Only the camera's own replies count (a socket listening on a fixed
+      # port could otherwise see unrelated traffic).
+      if ($ep.Address.ToString() -ne $CameraIp) { return @{ seq = -2; body = [byte[]]@() } }
+      if (-not $script:tx.header) { return @{ seq = -1; body = [byte[]]$pkt } }
+      if ($pkt.Length -lt 9) { return @{ seq = -2; body = [byte[]]@() } }
+      $rseq = ([int]$pkt[4] -shl 24) -bor ([int]$pkt[5] -shl 16) -bor ([int]$pkt[6] -shl 8) -bor $pkt[7]
+      return @{ seq = $rseq; body = [byte[]]$pkt[8..($pkt.Length - 1)] }
+    }
+    # TCP raw VISCA: read up to the 0xFF terminator.
+    $buf = New-Object System.Collections.Generic.List[byte]
+    while ($true) {
+      $b = $script:stream.ReadByte()
+      if ($b -lt 0) { return $null }
+      $buf.Add([byte]$b)
+      if ($b -eq 0xFF) { return @{ seq = -1; body = $buf.ToArray() } }
+    }
+  } catch { return $null }
 }
 
 # Returns @{ ok; replies; error } — ok when a completion (9y 5z) arrives.
@@ -88,12 +152,11 @@ function Invoke-Visca([byte[]]$payload, [switch]$Inquiry) {
   Send-Raw $ptype $payload
   $replies = @()
   for ($i = 0; $i -lt 4; $i++) {
-    $pkt = Receive-Packet
-    if ($null -eq $pkt) { break }
-    if ($pkt.Length -lt 11) { continue }
-    $rseq = ([int]$pkt[4] -shl 24) -bor ([int]$pkt[5] -shl 16) -bor ([int]$pkt[6] -shl 8) -bor $pkt[7]
-    if ($rseq -ne $script:seq) { $i--; continue }  # stale reply to an earlier command
-    $body = [byte[]]$pkt[8..($pkt.Length - 1)]
+    $r = Receive-Reply
+    if ($null -eq $r) { break }
+    if ($script:tx.header -and $r.seq -ne $script:seq) { $i--; continue }  # stale reply
+    $body = $r.body
+    if ($body.Length -lt 3 -or ($body[0] -band 0xF0) -ne 0x90) { continue }
     $replies += ,$body
     $kind = $body[1] -band 0xF0
     if ($kind -eq 0x50) { return @{ ok = $true; replies = $replies; body = $body } }
@@ -123,6 +186,7 @@ function Split-Nibbles([int]$v) {
 }
 
 function Get-Position {
+  if ($null -eq $script:udp -and $null -eq $script:stream) { return $null }
   $pt = Invoke-Visca ([byte[]](0x81, 0x09, 0x06, 0x12, 0xFF)) -Inquiry
   if (-not $pt.ok -or $pt.body.Length -lt 11) { return $null }
   $pos = @{ pan = (Get-Nibbles $pt.body 2); tilt = (Get-Nibbles $pt.body 6); zoom = $null }
@@ -211,25 +275,53 @@ try {
 
 # ---- 3. VISCA reachability ------------------------------------------------
 
-Write-Head "VISCA-over-IP: UDP $ViscaPort"
-Send-Raw 0x0200 ([byte[]](0x01))     # control command: reset sequence number
-$reset = Receive-Packet
-$script:seq = 0
-if ($null -ne $reset) { Write-Info "sequence reset acknowledged" }
+Write-Head "VISCA: finding a transport the camera answers"
+$candidates = @(
+  @{ name = "Sony VISCA-over-IP, UDP $ViscaPort"; proto = "udp"; header = $true; port = $ViscaPort; local = 0 },
+  @{ name = "Sony VISCA-over-IP, UDP $ViscaPort, replies to local port 52381";
+     proto = "udp"; header = $true; port = $ViscaPort; local = 52381 },
+  @{ name = "raw VISCA, UDP 1259"; proto = "udp"; header = $false; port = 1259; local = 0 },
+  @{ name = "raw VISCA, UDP $ViscaPort"; proto = "udp"; header = $false; port = $ViscaPort; local = 0 },
+  @{ name = "raw VISCA, TCP 5678"; proto = "tcp"; header = $false; port = 5678; local = 0 },
+  @{ name = "raw VISCA, TCP 1259"; proto = "tcp"; header = $false; port = 1259; local = 0 }
+)
+$ver = $null
+foreach ($t in $candidates) {
+  $err = Open-Transport $t
+  if ($null -ne $err) { Write-Info "$($t.name): $err"; continue }
+  if ($t.header) {
+    Send-Raw 0x0200 ([byte[]](0x01))   # control command: reset sequence number
+    [void](Receive-Reply)
+    $script:seq = 0
+  }
+  $v = Invoke-Visca ([byte[]](0x81, 0x09, 0x00, 0x02, 0xFF)) -Inquiry
+  if ($v.replies.Count -gt 0) { $ver = $v; Write-Pass "camera answers on: $($t.name)"; break }
+  Write-Info "$($t.name): no reply"
+}
 
-$ver = Invoke-Visca ([byte[]](0x81, 0x09, 0x00, 0x02, 0xFF)) -Inquiry
-if ($ver.ok -and $ver.body.Length -ge 10) {
+if ($null -eq $ver) {
+  Close-Transport
+  Write-Fail "no VISCA reply on any transport."
+  Write-Info "Check the camera's web UI for a VISCA / VISCA-over-IP setting and its port."
+  Write-Info "If pew-ptz already moves the camera, it accepts commands but never replies;"
+  Write-Info "presets can still be used, but this script can't verify them."
+  $summary.visca = "no reply on any transport"
+} elseif ($ver.ok -and $ver.body.Length -ge 10) {
   $b = $ver.body
   $vendor = ($b[2] -shl 8) -bor $b[3]; $model = ($b[4] -shl 8) -bor $b[5]
   $rom = ($b[6] -shl 8) -bor $b[7]
   Write-Pass ("version: vendor=0x{0:X4} model=0x{1:X4} rom=0x{2:X4} sockets={3}" -f $vendor, $model, $rom, $b[8])
-  $summary.visca = "ok"
-} elseif ($ver.replies.Count -gt 0) {
-  Write-Fail "version inquiry: $($ver.error) (raw: $(Hex $ver.replies[-1]))"
-  $summary.visca = "replies, but $($ver.error)"
+  $summary.visca = "ok ($($script:tx.name))"
 } else {
-  Write-Fail "no VISCA reply. Check VISCA-over-IP is enabled and the port is $ViscaPort."
-  $summary.visca = "no reply"
+  Write-Fail "version inquiry: $($ver.error) (raw: $(Hex $ver.replies[-1]))"
+  $summary.visca = "replies on $($script:tx.name), but $($ver.error)"
+}
+if ($null -ne $ver -and $script:tx.header -and $script:tx.local -eq 52381) {
+  Write-Info "Note: the camera replies to port 52381 instead of the sender's port."
+  Write-Info "pew-ptz doesn't wait for replies, so its commands are unaffected."
+} elseif ($null -ne $ver -and -not $script:tx.header) {
+  Write-Info "Note: pew-ptz currently sends Sony VISCA-over-IP to UDP $ViscaPort."
+  Write-Info "It needs a transport setting to talk to this camera ($($script:tx.name))."
 }
 
 # ---- 4. Position inquiry --------------------------------------------------
@@ -249,7 +341,7 @@ if ($null -ne $start) {
 function Write-Summary {
   Write-Head "Summary"
   foreach ($k in $summary.Keys) { Write-Host ("  {0,-18} {1}" -f $k, $summary[$k]) }
-  $script:udp.Close()
+  Close-Transport
 }
 
 if ($VerifyOnly) {
@@ -277,7 +369,7 @@ if ($ReadOnly) {
   exit 0
 }
 
-if ($summary.visca -ne "ok") {
+if ("$($summary.visca)" -notlike "ok*") {
   $summary.preset_test = "skipped (VISCA not working)"
   Write-Summary
   exit 1
