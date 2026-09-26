@@ -1,0 +1,8 @@
+{
+  "shared": ["Speaker", "Choir", "Chorister", "Piano", "Organ", "Sacrament", "North Stand", "Congregation", "Back Row"],
+  "wards": [
+    { "name": "1st Ward", "presets": ["Bishopric", "Primary", "Youth"] },
+    { "name": "2nd Ward", "presets": ["Bishopric", "Primary", "Youth"] },
+    { "name": "3rd Ward", "presets": ["Bishopric", "Primary", "Youth"] }
+  ]
+}

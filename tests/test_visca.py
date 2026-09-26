@@ -94,3 +94,10 @@ def test_returns_camera_reply_payload(cam_socket):
 
 def test_no_reply_returns_none(visca):
     assert visca.zoom_stop() is None
+
+
+def test_preset_set_followed_by_stop(visca, cam_socket):
+    # The stop soaks up the move some cameras drop right after a save.
+    visca.preset_set(20)
+    assert _recv(cam_socket)[1] == bytes([0x81, 0x01, 0x04, 0x3F, 0x01, 20, 0xFF])
+    assert _recv(cam_socket)[1] == bytes([0x81, 0x01, 0x06, 0x01, 1, 1, 0x03, 0x03, 0xFF])

@@ -97,6 +97,18 @@ class ViscaIP:
 
     # ---- presets (0..254) ----
 
+    def preset_set(self, n: int):
+        """Save the current position to slot n (CAM_Memory Set).
+
+        Some cameras (the ClearTouch RL500 among them) acknowledge the next
+        movement command after a save but silently drop it. Follow the save
+        with a harmless stop so the operator's next real move isn't the one
+        that gets lost."""
+        n = _clamp(n, 0, 254)
+        reply = self._send(bytes([0x81, 0x01, 0x04, 0x3F, 0x01, n, 0xFF]))
+        self.pan_tilt_stop()
+        return reply
+
     def preset_recall(self, n: int):
         n = _clamp(n, 0, 254)
         return self._send(bytes([0x81, 0x01, 0x04, 0x3F, 0x02, n, 0xFF]))
