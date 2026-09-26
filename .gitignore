@@ -15,3 +15,6 @@ dist/
 .pytest_cache/
 
 *.log
+
+# Output of scripts/probe-camera.ps1
+probe-presets.json
