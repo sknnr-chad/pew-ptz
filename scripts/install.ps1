@@ -29,39 +29,13 @@
 .PARAMETER TaskName
   Name shown in Task Scheduler. Default: "Pew PTZ Controller"
 
-.PARAMETER PinSetup
-  How to handle PIN setup:
-    Auto  (default) — prompt for both PINs on first install; on re-install,
-                      offer a Keep/Replace menu.
-    Skip            — never prompt. Errors out if no PIN store exists yet.
-    Force           — always re-prompt for both PINs, even if a store exists.
-                      Also re-enables auth if a previous install was open.
-
-.PARAMETER NoAuth
-  Run open — no PIN lock, every phone on the LAN gets full access. Use on
-  trusted home LANs where you don't want a login screen. Subsequent runs
-  remember this choice (detected by reading the existing launch.cmd) so
-  you don't have to re-pass the flag. Switch back to PINs with -PinSetup Force.
-
-  Note: -NoAuth leaves any existing auth.json on disk so PINs can be
-  re-enabled later. To wipe the PIN store entirely, use -RemovePins.
-
-.PARAMETER RemovePins
-  Destructive: delete auth.json (PIN hashes + persistent session secret)
-  and run open. Use when you're done with PIN authentication for good.
-  Implies -NoAuth (the launcher will set PEW_PTZ_AUTH_DISABLED=1). To
-  re-enable PINs later you'll have to set them from scratch.
 #>
 [CmdletBinding()]
 param(
   [string]$InstallDir = "C:\tools\pew-ptz",
   [string]$TaskUser   = "Chapel-AV",
   [int]   $Port       = 8080,
-  [string]$TaskName   = "Pew PTZ Controller",
-  [ValidateSet("Auto","Skip","Force")]
-  [string]$PinSetup   = "Auto",
-  [switch]$NoAuth,
-  [switch]$RemovePins
+  [string]$TaskName   = "Pew PTZ Controller"
 )
 
 $ErrorActionPreference = "Stop"
@@ -125,122 +99,22 @@ Start-Sleep -Milliseconds 400
 
 Write-Step "Installing pew-ptz into venv"
 & $venvPython -m pip install --upgrade pip --disable-pip-version-check | Out-Null
-& $venvPython -m pip install --upgrade --disable-pip-version-check $InstallDir
+# Dependencies come from the hash-pinned lockfile so every install gets the
+# exact versions that were tested; the package itself goes in with --no-deps.
+$lockFile = Join-Path $InstallDir "requirements.txt"
+& $venvPython -m pip install --disable-pip-version-check --require-hashes -r $lockFile
+if ($LASTEXITCODE -ne 0) { throw "pip install of locked dependencies failed" }
+& $venvPython -m pip install --upgrade --no-deps --disable-pip-version-check $InstallDir
 if ($LASTEXITCODE -ne 0) { throw "pip install of pew-ptz failed" }
 Write-OK "Package installed"
 
-# ---- Authentication setup -------------------------------------------------
-# Two layers of choice:
-#   1. Whether to enable PIN auth at all (-NoAuth, -RemovePins, or prompt)
-#   2. If enabled, what to do about the actual PINs (-PinSetup Auto/Skip/Force)
-# The auth-on/off decision is preserved across re-runs by reading the
-# existing launch.cmd. PINs themselves live in <InstallDir>\auth.json — the
-# auth CLI owns the prompt so PowerShell never sees plaintext.
-Write-Step "Configuring authentication"
-$authJson  = Join-Path $InstallDir "auth.json"
-$pinExists = Test-Path $authJson
-$launcher  = Join-Path $InstallDir "scripts\launch.cmd"
-$previouslyNoAuth = $false
-if (Test-Path $launcher) {
-  $previouslyNoAuth = ((Get-Content $launcher -Raw -ErrorAction SilentlyContinue) -match 'PEW_PTZ_AUTH_DISABLED=1')
-}
-$env:PEW_PTZ_STATE_DIR = $InstallDir
-
-function Remove-PinStore {
-  if (Test-Path $authJson) {
-    Remove-Item -Path $authJson -Force
-    Write-Note "Deleted PIN store: $authJson"
-  }
-  $tmp = "$authJson.tmp"
-  if (Test-Path $tmp) { Remove-Item -Path $tmp -Force }
-}
-
-# Decide whether auth is on or off for this install.
-$script:authEnabled = $true
-if ($RemovePins) {
-  Remove-PinStore
-  $pinExists = $false
-  $script:authEnabled = $false
-  Write-Note "-RemovePins specified — PIN store deleted, running open"
-}
-elseif ($NoAuth) {
-  $script:authEnabled = $false
-  Write-Note "-NoAuth specified — running open (no PIN lock)"
-}
-elseif ($previouslyNoAuth -and $PinSetup -ne 'Force') {
-  $script:authEnabled = $false
-  Write-Note "Previous install was running open. Keeping it that way."
-  Write-Note "  To switch to PINs: re-run with -PinSetup Force"
-  Write-Note "  To wipe the existing PIN store too: re-run with -RemovePins"
-}
-elseif (-not $pinExists -and $PinSetup -ne 'Skip') {
-  # First-time install (no prior decision) — ask
-  Write-Host ""
-  Write-Host "    The PIN lock is recommended for shared LANs (chapels, classrooms,"
-  Write-Host "    anywhere people you don't know might find the URL). On a trusted"
-  Write-Host "    home LAN you can skip it and run open."
-  Write-Host ""
-  $resp = (Read-Host "    Enable PIN authentication? [Y/n]").Trim().ToLower()
-  if ($resp -eq 'n' -or $resp -eq 'no') { $script:authEnabled = $false }
-}
-
-if (-not $script:authEnabled) {
-  Write-OK "Auth disabled. Server will run open."
-}
-else {
-  # ---- PIN setup (only when auth is enabled) -----------------------------
-  function Invoke-AuthSet([string]$role) {
-    & $venvPython -m pew_ptz.auth set --role $role
-    if ($LASTEXITCODE -ne 0) { throw "auth set --role $role failed (exit $LASTEXITCODE)" }
-  }
-
-  $rolesToSet = @()
-  if ($PinSetup -eq "Skip") {
-    if (-not $pinExists) {
-      throw "PinSetup=Skip but no PIN store at $authJson. Run again without -PinSetup Skip."
-    }
-    Write-OK "Skipping PIN setup (existing store kept)."
-  }
-  elseif ($PinSetup -eq "Force" -or -not $pinExists) {
-    if ($pinExists -and $PinSetup -eq "Force") {
-      Write-Note "PinSetup=Force — replacing both PINs"
-    } elseif (-not $pinExists) {
-      Write-Note "Setting initial PINs."
-    }
-    $rolesToSet = @("user","admin")
-  }
-  else {
-    Write-Note "Found existing PIN store: $authJson"
-    & $venvPython -m pew_ptz.auth status
-    Write-Host ""
-    Write-Host "    [K] Keep both (default)"
-    Write-Host "    [B] Replace both"
-    Write-Host "    [U] Replace user PIN only"
-    Write-Host "    [A] Replace admin PIN only"
-    Write-Host "    [D] Delete PIN store and run open"
-    $choice = (Read-Host "  Choice [K]").Trim().ToUpper()
-    if (-not $choice) { $choice = "K" }
-    switch ($choice) {
-      "K" { Write-OK "Keeping existing PINs." }
-      "B" { $rolesToSet = @("user","admin") }
-      "U" { $rolesToSet = @("user") }
-      "A" { $rolesToSet = @("admin") }
-      "D" {
-        Remove-PinStore
-        $pinExists = $false
-        $script:authEnabled = $false
-        Write-OK "PIN store deleted. Server will run open."
-      }
-      default { Write-Note "Unrecognized choice '$choice' — keeping existing PINs." }
-    }
-  }
-
-  if ($script:authEnabled) {
-    foreach ($role in $rolesToSet) {
-      Write-Note "Setting $role PIN (typing is hidden — no echo or asterisks)"
-      Invoke-AuthSet $role
-    }
-    if (Test-Path $authJson) { Write-OK "PIN store: $authJson" }
+# ---- Clean up leftovers from the retired PIN-lock feature --------------
+$launcher = Join-Path $InstallDir "scripts\launch.cmd"
+foreach ($stale in @("auth.json", "auth.json.tmp")) {
+  $path = Join-Path $InstallDir $stale
+  if (Test-Path $path) {
+    Remove-Item -Path $path -Force
+    Write-Note "Removed obsolete $path"
   }
 }
 
@@ -286,12 +160,8 @@ $settings = New-ScheduledTaskSettingsSet `
 # direct env field, and pythonw.exe inherits cmd's environment.
 $envLines = @(
   "set PEW_PTZ_LOG_DIR=$logDir",
-  "set PEW_PTZ_SERVER_PORT=$Port",
-  "set PEW_PTZ_STATE_DIR=$InstallDir"
+  "set PEW_PTZ_SERVER_PORT=$Port"
 )
-if (-not $script:authEnabled) {
-  $envLines += "set PEW_PTZ_AUTH_DISABLED=1"
-}
 $envBlock = $envLines -join "`r`n"
 @"
 @echo off

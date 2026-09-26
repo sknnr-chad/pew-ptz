@@ -1,0 +1,133 @@
+import pytest
+
+from pew_ptz import server
+from pew_ptz.visca import PAN_LEFT, PAN_RIGHT, PAN_STOP, TILT_DOWN, TILT_STOP, TILT_UP
+
+
+def test_index_renders_presets(client):
+    r = client.get("/")
+    assert r.status_code == 200
+    body = r.get_data(as_text=True)
+    for name in server.PRESETS:
+        assert name in body
+
+
+def test_healthz(client):
+    r = client.get("/healthz")
+    assert r.status_code == 200
+    assert r.get_json()["ok"] is True
+
+
+@pytest.mark.parametrize(
+    ("direction", "pan", "tilt"),
+    [
+        ("up", PAN_STOP, TILT_UP),
+        ("down", PAN_STOP, TILT_DOWN),
+        ("left", PAN_LEFT, TILT_STOP),
+        ("right", PAN_RIGHT, TILT_STOP),
+        ("up_left", PAN_LEFT, TILT_UP),
+        ("down_right", PAN_RIGHT, TILT_DOWN),
+    ],
+)
+def test_ptz_move_directions(client, camera, direction, pan, tilt):
+    r = client.post(f"/ptz/move/{direction}?speed=6")
+    assert r.status_code == 200
+    assert camera.calls == [("pan_tilt", (pan, tilt), {"pan_speed": 6, "tilt_speed": 6})]
+
+
+def test_ptz_move_unknown_direction(client, camera):
+    assert client.post("/ptz/move/sideways").status_code == 400
+    assert camera.calls == []
+
+
+def test_ptz_move_bad_speed_falls_back_to_default(client, camera):
+    assert client.post("/ptz/move/up?speed=fast").status_code == 200
+    assert camera.calls[0][2] == {"pan_speed": 12, "tilt_speed": 12}
+
+
+def test_ptz_stop(client, camera):
+    assert client.post("/ptz/stop").status_code == 200
+    assert camera.calls == [("pan_tilt_stop", (), {})]
+
+
+@pytest.mark.parametrize(
+    ("action", "call"),
+    [("tele", ("zoom_tele", (2,), {})), ("wide", ("zoom_wide", (2,), {})),
+     ("stop", ("zoom_stop", (), {}))],
+)
+def test_zoom_actions(client, camera, action, call):
+    assert client.post(f"/zoom/{action}").status_code == 200
+    assert camera.calls == [call]
+
+
+def test_zoom_unknown_action(client, camera):
+    assert client.post("/zoom/sideways").status_code == 400
+    assert camera.calls == []
+
+
+def test_preset_recall(client, camera):
+    assert client.post("/preset/recall/3").status_code == 200
+    assert camera.calls == [("preset_recall", (3,), {})]
+
+
+def test_toggle_video_flips_state_and_sends_alt_v(client, chords, zoom_reader):
+    j = client.post("/zoom_meeting/toggle_video").get_json()
+    assert chords == ["v"]
+    assert j["video_on"] is False and j["mic_on"] is True
+    assert j["air_on"] is False
+    assert zoom_reader.refreshes == 1
+
+
+def test_toggle_mic_flips_state_and_sends_alt_a(client, chords):
+    j = client.post("/zoom_meeting/toggle_mic").get_json()
+    assert chords == ["a"]
+    assert j["mic_on"] is False and j["video_on"] is True
+
+
+def test_toggle_air_flips_both(client, chords):
+    j = client.post("/zoom_meeting/toggle_air").get_json()
+    assert chords == ["v", "a"]
+    assert j["video_on"] is False and j["mic_on"] is False
+
+
+def test_toggle_syncs_from_observed_state_first(client, chords, zoom_reader):
+    # Optimistic state says video on, but UIA sees it off: the toggle must
+    # turn it ON, not compound the drift.
+    zoom_reader.state.update(observed=True, video_on=False, mic_on=True)
+    client.post("/zoom_meeting/toggle_video")
+    zoom_reader.state.update(observed=False)
+    assert client.get("/zoom_meeting/state").get_json()["video_on"] is True
+
+
+def test_state_prefers_observed_values(client, zoom_reader):
+    zoom_reader.state.update(observed=True, video_on=False, mic_on=None)
+    j = client.get("/zoom_meeting/state").get_json()
+    assert j["video_on"] is False  # observed
+    assert j["mic_on"] is True  # unobserved -> optimistic fallback
+    assert j["observed"] is True
+
+
+def test_toggle_without_keyboard_is_500(client, monkeypatch):
+    monkeypatch.setattr(server, "_alt_chord", lambda _letter: False)
+    assert client.post("/zoom_meeting/toggle_video").status_code == 500
+    assert client.post("/zoom_meeting/toggle_mic").status_code == 500
+    monkeypatch.setattr(server, "_kbd", None)
+    assert client.post("/zoom_meeting/toggle_air").status_code == 500
+
+
+def test_toggle_blocked_when_zoom_not_focused(client, chords, monkeypatch):
+    monkeypatch.setattr(server, "SKIP_FOCUS_CHECK", False)
+    monkeypatch.setattr(server, "_user32", object())
+    monkeypatch.setattr(server, "foreground_info", lambda: (False, "Notepad", "notepad.exe"))
+    r = client.post("/zoom_meeting/toggle_air")
+    assert r.status_code == 409
+    assert r.get_json()["foreground_process"] == "notepad.exe"
+    assert chords == []
+
+
+def test_toggle_allowed_when_zoom_focused(client, chords, monkeypatch):
+    monkeypatch.setattr(server, "SKIP_FOCUS_CHECK", False)
+    monkeypatch.setattr(server, "_user32", object())
+    monkeypatch.setattr(server, "foreground_info", lambda: (True, "Zoom Meeting", "Zoom.exe"))
+    assert client.post("/zoom_meeting/toggle_mic").status_code == 200
+    assert chords == ["a"]

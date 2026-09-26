@@ -57,7 +57,7 @@ class ViscaIP:
                     try:
                         data, _ = sock.recvfrom(64)
                         return data[8:] if len(data) >= 8 else data
-                    except socket.timeout:
+                    except TimeoutError:
                         return None
             except OSError as e:
                 print(f"[visca] send error: {e}")

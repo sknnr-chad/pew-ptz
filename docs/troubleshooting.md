@@ -76,10 +76,12 @@ on the Zoom Meeting card:
 | `UIA off` | `uiautomation` package didn't install or isn't loadable | re-run `scripts\install.ps1`; check `server.log` for `uiautomation unavailable: ...` |
 
 If `● live` still doesn't appear after enabling the always-visible toolbar
-and being in a meeting, hit `http://localhost:8080/zoom_meeting/debug` from
-the booth PC. That endpoint dumps every top-level window's class+name and
-all button names for any window that looks Zoom-ish — useful when a Zoom
-upgrade renames the window class or button labels.
+and being in a meeting, a Zoom upgrade has probably renamed the meeting
+window class or the mute/video button labels. Inspect the meeting window with
+Microsoft's [Accessibility Insights for Windows](https://accessibilityinsights.io/docs/windows/overview/)
+(or `inspect.exe` from the Windows SDK), note the window's class name and the
+buttons' names, and add them to `_MEETING_CLASS_HINTS` or the `_MIC_*` /
+`_VID_*` name lists in `pew_ptz/zoom_state.py`.
 
 ## "Server starts but logs `keyboard controller unavailable`"
 

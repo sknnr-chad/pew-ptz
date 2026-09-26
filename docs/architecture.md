@@ -91,10 +91,6 @@ Critical implementation details:
 - **COM is per-thread on Windows.** The poller calls `comtypes.CoInitialize()`
   on its own thread before any UIA call. Without this, `auto.GetRootControl()`
   throws `WinError -2147221008 ("CoInitialize has not been called")`.
-- **The /zoom_meeting/debug endpoint can't call UIA directly** for the same
-  reason — Flask request threads have no COM init. The handler signals the
-  poller via an `Event` and the poller does the walk on its own thread, then
-  signals the result back.
 - **Toolbar visibility matters.** Zoom auto-hides the meeting toolbar after
   a few seconds of mouse inactivity, and hidden buttons drop out of the
   UIA tree. The operator must enable
