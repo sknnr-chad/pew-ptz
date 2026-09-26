@@ -1,5 +1,5 @@
 """
-VISCA-over-IP client for the ClearTouch RL500.
+VISCA-over-IP client for Sony-protocol PTZ cameras (reference: ClearTouch RL500).
 
 Wire format (Sony VISCA-over-IP, UDP 52381):
 
@@ -12,9 +12,12 @@ We send best-effort and drain any reply with a short timeout so the UI stays sna
 
 from __future__ import annotations
 
+import logging
 import socket
 import threading
 from contextlib import closing
+
+log = logging.getLogger("pew_ptz.visca")
 
 DEFAULT_PORT = 52381
 
@@ -60,7 +63,7 @@ class ViscaIP:
                     except TimeoutError:
                         return None
             except OSError as e:
-                print(f"[visca] send error: {e}")
+                log.warning("send error: %s", e)
                 return None
 
     # ---- pan / tilt ----

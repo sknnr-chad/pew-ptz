@@ -25,6 +25,7 @@ Config via environment variables:
                                   default: 9 sacrament-meeting positions
     PEW_PTZ_LOG_DIR               where to put rotating server.log; if unset,
                                   logs only to stdout
+    PEW_PTZ_TITLE                 browser tab / home-screen title. Default: pew-ptz
     PEW_PTZ_SKIP_FOCUS_CHECK      set to 1 to bypass the "Zoom must be
                                   foreground" guard (useful for UI testing)
 """
@@ -40,7 +41,7 @@ from ctypes import wintypes
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
-from flask import Flask, jsonify, render_template_string, request
+from flask import Flask, jsonify, render_template, request
 from waitress import serve
 
 from pew_ptz.visca import (
@@ -69,6 +70,7 @@ PRESETS = [
         "Speaker,Choir,Chorister,Piano,Organ,Sacrament,North Stand,Congregation,Back Row",
     ).split(",") if p.strip()
 ]
+PAGE_TITLE = _env("TITLE", "pew-ptz")
 SKIP_FOCUS_CHECK = _env("SKIP_FOCUS_CHECK", "").lower() in ("1", "true", "yes")
 
 # Log to a rotating file when PEW_PTZ_LOG_DIR is set (the Task Scheduler launch
@@ -104,7 +106,7 @@ try:
     _kbd = Controller()
 except Exception as e:  # pragma: no cover - non-Windows / headless
     _kbd = None
-    print(f"[zoom] keyboard controller unavailable: {e}")
+    log.warning("keyboard controller unavailable: %s", e)
 
 
 def _alt_chord(letter: str):
@@ -125,8 +127,7 @@ def zoom_toggle_video() -> bool:
 
 
 def zoom_toggle_mic() -> bool:
-    ok = _alt_chord("a")
-    return ok
+    return _alt_chord("a")
 
 
 # ---- Foreground-window detection (Windows) -------------------------------
@@ -142,7 +143,7 @@ if sys.platform == "win32":
         _user32 = ctypes.windll.user32
         _kernel32 = ctypes.windll.kernel32
     except Exception as e:
-        print(f"[zoom] Win32 foreground check unavailable: {e}")
+        log.warning("Win32 foreground check unavailable: %s", e)
 
 
 def foreground_info() -> tuple[bool, str, str]:
@@ -173,15 +174,15 @@ def foreground_info() -> tuple[bool, str, str]:
 
 
 # ---- Optimistic Zoom state ----------------------------------------------
-# We can't read Zoom's real mute/video state without its SDK, so we track what
-# we *believe* the state is based on toggles we've sent. Resets to "on air"
-# every server restart — the operator should glance to confirm at start.
+# Fallback for when UI Automation can't see the toolbar (see zoom_state.py):
+# we track what we *believe* the state is from the toggles we've sent. Resets
+# to "on air" every server restart.
 
 _zoom_state = {"video_on": True, "mic_on": True, "last_toggled": None}
 
 
 def _public_state() -> dict:
-    is_zoom, title, proc = foreground_info()
+    is_zoom, _title, proc = foreground_info()
     focus_active = _user32 is not None and not SKIP_FOCUS_CHECK
     uia = zoom_reader.get()
 
@@ -200,7 +201,6 @@ def _public_state() -> dict:
         "air_on": bool(video_on) and bool(mic_on),
         "last_toggled": _zoom_state["last_toggled"],
         "zoom_focused": is_zoom,
-        "foreground_title": title,
         "foreground_process": proc,
         "focus_check_active": focus_active,
         # Source-of-truth metadata so the UI can show observed vs assumed:
@@ -216,13 +216,10 @@ def _focus_block():
     """Return a (response, status) tuple if the chord should be blocked, else None."""
     if not _user32 or SKIP_FOCUS_CHECK:
         return None
-    is_zoom, title, proc = foreground_info()
-    if is_zoom:
+    if foreground_info()[0]:
         return None
     return jsonify({
         "error": "Zoom is not the foreground window",
-        "foreground_title": title,
-        "foreground_process": proc,
         **_public_state(),
     }), 409
 
@@ -245,8 +242,9 @@ DIRS = {
 
 @app.route("/")
 def index():
-    return render_template_string(
-        INDEX_HTML,
+    return render_template(
+        "index.html",
+        title=PAGE_TITLE,
         camera_ip=CAMERA_IP,
         camera_snapshot_path=CAMERA_SNAPSHOT_PATH,
         presets=PRESETS,
@@ -291,14 +289,10 @@ def preset_recall(n: int):
 
 @app.get("/healthz")
 def healthz():
-    is_zoom, title, proc = foreground_info()
     return jsonify({
         "ok": True,
         "uptime_s": int(time.time() - START_TIME),
-        "camera_ip": CAMERA_IP,
         "keyboard_ok": _kbd is not None,
-        "foreground_process": proc,
-        "zoom_focused": is_zoom,
     })
 
 
@@ -355,477 +349,23 @@ def http_toggle_air():
     if blocked:
         return blocked
     _sync_optimistic_from_uia()
-    zoom_toggle_video()
-    time.sleep(0.12)
-    zoom_toggle_mic()
+    if not zoom_toggle_video():
+        return jsonify({"error": "keyboard unavailable on this host"}), 500
     _zoom_state["video_on"] = not _zoom_state["video_on"]
-    _zoom_state["mic_on"] = not _zoom_state["mic_on"]
     _zoom_state["last_toggled"] = time.time()
+    time.sleep(0.12)
+    if not zoom_toggle_mic():
+        # Video already flipped; report the half-done state rather than lie.
+        zoom_reader.trigger_refresh()
+        return jsonify({"error": "mic toggle failed after video toggled",
+                        **_public_state()}), 500
+    _zoom_state["mic_on"] = not _zoom_state["mic_on"]
     zoom_reader.trigger_refresh()
     return jsonify({"status": "toggled video + mic", **_public_state()})
 
 
-# ---- Inline template -----------------------------------------------------
-
-INDEX_HTML = r"""<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport"
-        content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
-  <title>Chapel RL500 PTZ</title>
-  <!-- PWA: lets the operator "Add to Home Screen" and launch full-screen,
-       which on a phone-as-controller is a big deal (no browser chrome
-       eating screen space). Wake Lock proper requires HTTPS; the inline
-       fallback below keeps the screen on over plain HTTP/LAN too. -->
-  <link rel="manifest" href="/static/manifest.json" />
-  <!-- apple-touch-icon: iOS works with PNG on all versions and SVG only on
-       14+. PNG it is — keeps older devices working too. -->
-  <link rel="apple-touch-icon" href="/static/icon-192.png" />
-  <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <meta name="apple-mobile-web-app-title" content="pew-ptz" />
-  <meta name="theme-color" content="#0f172a" />
-  <style>
-    :root { color-scheme: dark; }
-    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-    body {
-      margin: 0; padding: 16px; max-width: 560px; margin-inline: auto;
-      font-family: -apple-system, system-ui, "Segoe UI", Roboto, sans-serif;
-      background: #0f172a; color: #e0f2fe;
-    }
-    .card { background: #111827; border-radius: 18px; padding: 14px; margin-bottom: 18px; }
-    .card h2 { margin: 0 0 10px; font-size: 0.85rem; letter-spacing: 0.12em;
-               text-transform: uppercase; color: #fbbf24; }
-    button {
-      font: inherit; color: inherit; border: 0; cursor: pointer;
-      background: #1f2937; border-radius: 14px; padding: 14px;
-      touch-action: manipulation; user-select: none;
-    }
-    button:active { transform: scale(0.96); background: #0b1220; }
-    .preview-wrap {
-      background: #000; border-radius: 18px; overflow: hidden;
-      aspect-ratio: 16 / 9;
-      position: sticky; top: 0; z-index: 50;
-      box-shadow: 0 6px 18px rgba(0,0,0,0.6);
-      margin-bottom: 14px;
-    }
-    .preview-wrap img {
-      width: 100%; height: 100%; display: block; object-fit: cover;
-      background: #000;
-    }
-    /* Rule-of-thirds composition overlay. Lines stay 1px regardless of
-       the preview's rendered size (vector-effect + preserveAspectRatio).
-       The drop-shadow gives a soft halo so the lines read on both bright
-       windows and dark stage backdrops without doubling the markup. */
-    .thirds-overlay {
-      position: absolute; inset: 0;
-      width: 100%; height: 100%;
-      pointer-events: none;
-      filter: drop-shadow(0 0 2px rgba(0,0,0,0.75));
-    }
-    .thirds-overlay line {
-      stroke: rgba(255,255,255,0.72);
-      stroke-width: 1.25;
-      vector-effect: non-scaling-stroke;
-    }
-    .preview-wrap.no-thirds .thirds-overlay { display: none; }
-    .thirds-toggle {
-      position: absolute; bottom: 8px; right: 8px;
-      width: 34px; height: 34px;
-      padding: 0;
-      background: rgba(0,0,0,0.5);
-      border-radius: 6px;
-      display: flex; align-items: center; justify-content: center;
-      opacity: 0.4;
-      transition: opacity 0.15s;
-      z-index: 2;
-    }
-    .thirds-toggle:hover, .thirds-toggle:active { opacity: 1; }
-    .thirds-toggle:active { background: rgba(0,0,0,0.7); transform: scale(0.95); }
-    .thirds-toggle svg { width: 18px; height: 18px; fill: none; stroke: white; stroke-width: 1.6; }
-    .preview-wrap.no-thirds .thirds-toggle svg { opacity: 0.45; }
-    .dpad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
-            max-width: 280px; margin-inline: auto; }
-    .dpad button { height: 76px; font-size: 1.6rem; }
-    .dpad .home { background: #334155; font-size: 0.95rem; font-weight: 600; }
-    .row { display: flex; gap: 10px; justify-content: center; margin-top: 14px; }
-    .row .group { flex: 1; text-align: center; }
-    .row .label { font-size: 0.7rem; letter-spacing: 0.15em;
-                  text-transform: uppercase; color: #94a3b8; margin-bottom: 6px; }
-    .row .pair { display: flex; gap: 8px; }
-    .row .pair button { flex: 1; padding: 16px 0; font-size: 1.4rem; font-weight: 700; }
-    .zoombtn { background: #2563eb; }
-    .presets { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-    .presets button {
-      width: 100%; height: 64px; margin: 0; padding: 6px 8px;
-      font-weight: 600; line-height: 1.15;
-      display: flex; align-items: center; justify-content: center;
-      text-align: center;
-    }
-    .air {
-      width: 100%; padding: 26px; font-size: 1.4rem; font-weight: 800;
-      border-radius: 18px; letter-spacing: 0.05em;
-      background: #1f2937;          /* neutral fallback before state arrives */
-      transition: background 0.18s ease;
-    }
-    .air.off-air { background: #047857; }   /* tally-light: safe / not broadcasting */
-    .air.on-air  { background: #b91c1c; }   /* tally-light: live right now */
-    .air-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
-    .air-row button { padding: 14px; font-weight: 600; }
-    .toast {
-      position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%);
-      background: #0b1220; border: 1px solid #1f2937; padding: 8px 14px;
-      border-radius: 999px; font-size: 0.85rem; opacity: 0; transition: opacity 0.2s;
-      pointer-events: none;
-    }
-    .toast.show { opacity: 1; }
-    .mode { display: flex; gap: 6px; justify-content: center; margin-top: 10px; }
-    .mode button { background: #1e293b; padding: 8px 14px; font-size: 0.8rem; }
-    .mode button.active { background: #2563eb; }
-    .status { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap;
-              margin-top: 12px; font-size: 0.72rem; }
-    .pill { padding: 4px 10px; border-radius: 999px; background: #1f2937;
-            color: #cbd5e1; font-weight: 700; letter-spacing: 0.06em; }
-    .pill.on   { background: #065f46; color: #d1fae5; }
-    .pill.off  { background: #7f1d1d; color: #fecaca; }
-    .pill.warn { background: #92400e; color: #fde68a; }
-    .pill.air-on  { background: #b91c1c; color: #fff1f2; }
-    .pill.air-off { background: #064e3b; color: #d1fae5; }
-  </style>
-</head>
-<body>
-  <div class="preview-wrap" id="previewWrap">
-    <img id="preview" alt="Live preview"
-         src="http://{{ camera_ip }}{{ camera_snapshot_path }}" />
-    <svg class="thirds-overlay" viewBox="0 0 300 300" preserveAspectRatio="none" aria-hidden="true">
-      <line x1="0"   y1="100" x2="300" y2="100" />
-      <line x1="0"   y1="200" x2="300" y2="200" />
-      <line x1="100" y1="0"   x2="100" y2="300" />
-      <line x1="200" y1="0"   x2="200" y2="300" />
-    </svg>
-    <button class="thirds-toggle" id="thirdsToggle" aria-label="Toggle rule-of-thirds overlay">
-      <svg viewBox="0 0 24 24"><path d="M2 8 H22 M2 16 H22 M8 2 V22 M16 2 V22" /></svg>
-    </button>
-  </div>
-
-  <div class="card">
-    <h2>Presets</h2>
-    <div class="presets" id="presets"></div>
-  </div>
-
-  <div class="card">
-    <h2>Pan / Tilt</h2>
-    <div class="dpad">
-      <button data-dir="up_left">↖</button>
-      <button data-dir="up">↑</button>
-      <button data-dir="up_right">↗</button>
-      <button data-dir="left">←</button>
-      <button class="home" id="homeBtn">HOME</button>
-      <button data-dir="right">→</button>
-      <button data-dir="down_left">↙</button>
-      <button data-dir="down">↓</button>
-      <button data-dir="down_right">↘</button>
-    </div>
-    <div class="mode">
-      <span style="align-self:center; font-size:0.75rem; color:#94a3b8;">Speed:</span>
-      <button data-speed="6" class="active">Slow</button>
-      <button data-speed="12">Med</button>
-      <button data-speed="20">Fast</button>
-    </div>
-
-    <div class="row">
-      <div class="group">
-        <div class="label">Zoom</div>
-        <div class="pair">
-          <button class="zoombtn" data-zoom="wide">−</button>
-          <button class="zoombtn" data-zoom="tele">+</button>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <div class="card">
-    <h2>Zoom Meeting</h2>
-    <button class="air" id="airBtn">TOGGLE AIR (video + mic)</button>
-    <div class="air-row">
-      <button id="vidBtn">Video only</button>
-      <button id="micBtn">Mic only</button>
-    </div>
-    <div class="status" id="zoomStatus"></div>
-  </div>
-
-  <div class="toast" id="toast"></div>
-
-<script>
-  const PRESETS = {{ presets | tojson }};
-  let speed = 6;
-
-  const toast = document.getElementById("toast");
-  let toastTimer = null;
-  function flash(msg) {
-    toast.textContent = msg;
-    toast.classList.add("show");
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => toast.classList.remove("show"), 1200);
-  }
-
-  async function post(path) {
-    try {
-      const r = await fetch(path, { method: "POST", credentials: "same-origin" });
-      const j = await r.json().catch(() => ({}));
-      if (r.status === 409 && j.foreground_process !== undefined) {
-        flash("⚠ Zoom not focused (" + (j.foreground_process || "unknown") + ")");
-      } else if (!r.ok) {
-        flash("⚠ " + (j.error || r.statusText));
-      }
-      return j;
-    } catch (e) {
-      flash("⚠ network");
-    }
-  }
-
-  // ---- hold-to-move for D-pad ----
-  function bindHold(btn, onStart, onEnd) {
-    let active = false;
-    const start = (e) => {
-      e.preventDefault();
-      if (active) return;
-      active = true;
-      onStart();
-    };
-    const end = (e) => {
-      if (!active) return;
-      active = false;
-      onEnd();
-    };
-    btn.addEventListener("pointerdown", start);
-    btn.addEventListener("pointerup", end);
-    btn.addEventListener("pointerleave", end);
-    btn.addEventListener("pointercancel", end);
-  }
-
-  document.querySelectorAll(".dpad button[data-dir]").forEach(btn => {
-    const dir = btn.dataset.dir;
-    bindHold(btn,
-      () => post(`/ptz/move/${dir}?speed=${speed}`),
-      () => post(`/ptz/stop`));
-  });
-
-  document.querySelectorAll("button[data-zoom]").forEach(btn => {
-    const action = btn.dataset.zoom;
-    bindHold(btn,
-      () => post(`/zoom/${action}`),
-      () => post(`/zoom/stop`));
-  });
-
-  // "HOME" = jump to preset 1 (Speaker), the most useful default framing
-  document.getElementById("homeBtn").addEventListener("click", () => post("/preset/recall/1"));
-
-  document.querySelectorAll(".mode button[data-speed]").forEach(btn => {
-    btn.addEventListener("click", () => {
-      speed = parseInt(btn.dataset.speed, 10);
-      document.querySelectorAll(".mode button[data-speed]")
-        .forEach(b => b.classList.remove("active"));
-      btn.classList.add("active");
-    });
-  });
-
-  // ---- presets ----
-  const presetsEl = document.getElementById("presets");
-  PRESETS.forEach((name, i) => {
-    const b = document.createElement("button");
-    b.textContent = name;
-    const slot = i + 1;
-    b.addEventListener("click", async () => {
-      await post(`/preset/recall/${slot}`);
-      flash(name);
-    });
-    presetsEl.appendChild(b);
-  });
-
-  // ---- zoom meeting ----
-  document.getElementById("airBtn").addEventListener("click", async () => {
-    const j = await post("/zoom_meeting/toggle_air");
-    if (j && j.status) flash("Toggled video + mic");
-    refreshZoomStatus();
-  });
-  document.getElementById("vidBtn").addEventListener("click", async () => {
-    const j = await post("/zoom_meeting/toggle_video");
-    if (j && j.status) flash("Toggled video");
-    refreshZoomStatus();
-  });
-  document.getElementById("micBtn").addEventListener("click", async () => {
-    const j = await post("/zoom_meeting/toggle_mic");
-    if (j && j.status) flash("Toggled mic");
-    refreshZoomStatus();
-  });
-
-  // ---- zoom state polling ----
-  const zoomStatusEl = document.getElementById("zoomStatus");
-  function fmtTime(epoch) {
-    if (!epoch) return "—";
-    const d = new Date(epoch * 1000);
-    return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-  }
-  const airBtnEl = document.getElementById("airBtn");
-  function renderZoomStatus(s) {
-    if (!s) { zoomStatusEl.innerHTML = ""; return; }
-    const observed = !!s.observed;
-    const tag = observed ? "live" : "assumed";
-    const airCls = s.air_on ? "air-on" : "air-off";
-    const airTxt = (s.air_on ? "ON AIR" : "OFF AIR") + " (" + tag + ")";
-    // Tally-light: green when off-air, red when on-air. Pills carry the same
-    // info; this just makes the state legible at a glance.
-    airBtnEl.classList.toggle("on-air",  !!s.air_on);
-    airBtnEl.classList.toggle("off-air", !s.air_on);
-    const vidCls = s.video_on ? "on" : "off";
-    const micCls = s.mic_on ? "on" : "off";
-    let focusPill;
-    if (!s.focus_check_active) {
-      focusPill = `<span class="pill warn">focus check off</span>`;
-    } else if (s.zoom_focused) {
-      focusPill = `<span class="pill on">Zoom focused</span>`;
-    } else {
-      const fg = s.foreground_process || "no window";
-      focusPill = `<span class="pill warn">⚠ ${fg}</span>`;
-    }
-    let truthPill;
-    if (!s.uia_available) {
-      truthPill = `<span class="pill warn">UIA off</span>`;
-    } else if (observed) {
-      truthPill = `<span class="pill on">● live</span>`;
-    } else if (s.in_meeting === false) {
-      truthPill = `<span class="pill warn">no meeting</span>`;
-    } else {
-      truthPill = `<span class="pill warn">toolbar hidden</span>`;
-    }
-    zoomStatusEl.innerHTML =
-      `<span class="pill ${airCls}">${airTxt}</span>` +
-      `<span class="pill ${vidCls}">VID ${s.video_on ? "ON" : "OFF"}</span>` +
-      `<span class="pill ${micCls}">MIC ${s.mic_on ? "ON" : "OFF"}</span>` +
-      truthPill +
-      focusPill +
-      `<span class="pill">last ${fmtTime(s.last_toggled)}</span>`;
-  }
-  async function refreshZoomStatus() {
-    try {
-      const r = await fetch("/zoom_meeting/state", { credentials: "same-origin" });
-      if (r.ok) renderZoomStatus(await r.json());
-    } catch (e) { /* network blip — ignore */ }
-  }
-  refreshZoomStatus();
-  setInterval(refreshZoomStatus, 2000);
-
-  // ---- keep screen awake while operating ----
-  // Tries the Wake Lock API first (works in secure contexts: HTTPS,
-  // localhost, or PWA installed from HTTPS). On plain HTTP/LAN — which
-  // is the default deployment — both Wake Lock and Service Worker are
-  // unavailable, so we fall back to playing a tiny silent looped video
-  // (the NoSleep.js trick) which most mobile browsers honor by NOT
-  // sleeping the screen.
-  //
-  // Both paths arm on the first user gesture (browser autoplay rules)
-  // and re-engage when the tab becomes visible again, since the OS
-  // releases the lock when the page is backgrounded.
-  //
-  // Video assets adapted from NoSleep.js (MIT, Rich Tibbett).
-  (function() {
-    let wakeLock = null;
-    let video = null;
-    let armed = false;
-
-    function makeVideo() {
-      const v = document.createElement("video");
-      v.setAttribute("playsinline", "");
-      v.setAttribute("muted", "");
-      v.setAttribute("loop", "");
-      v.muted = true;
-      v.loop = true;
-      v.style.cssText = "position:fixed;width:1px;height:1px;opacity:0;" +
-        "pointer-events:none;left:-10px;top:-10px;";
-      const s1 = document.createElement("source");
-      s1.src = "/static/silent.webm"; s1.type = "video/webm";
-      const s2 = document.createElement("source");
-      s2.src = "/static/silent.mp4"; s2.type = "video/mp4";
-      v.appendChild(s1); v.appendChild(s2);
-      document.body.appendChild(v);
-      return v;
-    }
-
-    async function tryNativeLock() {
-      if (!("wakeLock" in navigator)) return false;
-      try {
-        wakeLock = await navigator.wakeLock.request("screen");
-        wakeLock.addEventListener("release", () => { wakeLock = null; });
-        return true;
-      } catch (e) { return false; }
-    }
-
-    async function tryVideoFallback() {
-      if (!video) video = makeVideo();
-      try { await video.play(); return true; } catch (e) { return false; }
-    }
-
-    async function enable() {
-      if (await tryNativeLock()) return;
-      await tryVideoFallback();
-    }
-
-    async function armOnce() {
-      if (armed) return;
-      armed = true;
-      document.removeEventListener("pointerdown", armOnce);
-      await enable();
-    }
-
-    document.addEventListener("pointerdown", armOnce, { once: true });
-    document.addEventListener("visibilitychange", () => {
-      if (armed && document.visibilityState === "visible") enable();
-    });
-  })();
-
-  // ---- rule-of-thirds overlay toggle ----
-  // Defaults ON; persists per-device in localStorage so each operator's
-  // phone remembers its own preference.
-  (function() {
-    const wrap = document.getElementById("previewWrap");
-    const btn = document.getElementById("thirdsToggle");
-    const KEY = "pew_ptz_thirds";
-    const saved = localStorage.getItem(KEY);
-    const startOn = saved === null ? true : saved === "on";
-    wrap.classList.toggle("no-thirds", !startOn);
-    btn.addEventListener("click", () => {
-      wrap.classList.toggle("no-thirds");
-      const nowOn = !wrap.classList.contains("no-thirds");
-      localStorage.setItem(KEY, nowOn ? "on" : "off");
-    });
-  })();
-
-  // ---- live snapshot preview ----
-  // Poll the camera's snapshot URL (configured server-side) and swap into the
-  // visible <img> only after the new frame finishes loading.
-  // only after the new frame finishes loading. Avoids flicker / blanks.
-  (function() {
-    const imgEl = document.getElementById("preview");
-    const base = imgEl.src.split("?")[0];
-    const PERIOD_MS = 400;
-    function tick() {
-      const next = new Image();
-      next.onload = () => { imgEl.src = next.src; setTimeout(tick, PERIOD_MS); };
-      next.onerror = () => { setTimeout(tick, 1500); };
-      next.src = base + "?t=" + Date.now();
-    }
-    tick();
-  })();
-</script>
-</body>
-</html>
-"""
-
-
 def main():
-    log.info("Chapel RL500 Controller starting on http://0.0.0.0:%s", SERVER_PORT)
+    log.info("pew-ptz starting on http://0.0.0.0:%s", SERVER_PORT)
     log.info("  Camera:        %s:%s", CAMERA_IP, VISCA_PORT)
     log.info("  Presets:       %s", PRESETS)
     log.info("  Open on phone: http://<this-pc-ip>:%s", SERVER_PORT)

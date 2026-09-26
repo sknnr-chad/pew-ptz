@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport"
+        content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>{{ title }}</title>
+  <!-- PWA: lets the operator "Add to Home Screen" and launch full-screen,
+       which on a phone-as-controller is a big deal (no browser chrome
+       eating screen space). Wake Lock proper requires HTTPS; the inline
+       fallback in app.js keeps the screen on over plain HTTP/LAN too. -->
+  <link rel="manifest" href="/static/manifest.json" />
+  <!-- apple-touch-icon: iOS works with PNG on all versions and SVG only on
+       14+. PNG it is — keeps older devices working too. -->
+  <link rel="apple-touch-icon" href="/static/icon-192.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="{{ title }}" />
+  <meta name="theme-color" content="#0f172a" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}" />
+</head>
+<body>
+  <div class="preview-wrap" id="previewWrap">
+    <img id="preview" alt="Live preview"
+         src="http://{{ camera_ip }}{{ camera_snapshot_path }}" />
+    <svg class="thirds-overlay" viewBox="0 0 300 300" preserveAspectRatio="none" aria-hidden="true">
+      <line x1="0"   y1="100" x2="300" y2="100" />
+      <line x1="0"   y1="200" x2="300" y2="200" />
+      <line x1="100" y1="0"   x2="100" y2="300" />
+      <line x1="200" y1="0"   x2="200" y2="300" />
+    </svg>
+    <button class="thirds-toggle" id="thirdsToggle" aria-label="Toggle rule-of-thirds overlay">
+      <svg viewBox="0 0 24 24"><path d="M2 8 H22 M2 16 H22 M8 2 V22 M16 2 V22" /></svg>
+    </button>
+  </div>
+
+  <div class="card">
+    <h2>Presets</h2>
+    <div class="presets" id="presets"></div>
+  </div>
+
+  <div class="card">
+    <h2>Pan / Tilt</h2>
+    <div class="dpad">
+      <button data-dir="up_left">↖</button>
+      <button data-dir="up">↑</button>
+      <button data-dir="up_right">↗</button>
+      <button data-dir="left">←</button>
+      <button class="home" id="homeBtn">HOME</button>
+      <button data-dir="right">→</button>
+      <button data-dir="down_left">↙</button>
+      <button data-dir="down">↓</button>
+      <button data-dir="down_right">↘</button>
+    </div>
+    <div class="mode">
+      <span style="align-self:center; font-size:0.75rem; color:#94a3b8;">Speed:</span>
+      <button data-speed="6" class="active">Slow</button>
+      <button data-speed="12">Med</button>
+      <button data-speed="20">Fast</button>
+    </div>
+
+    <div class="row">
+      <div class="group">
+        <div class="label">Zoom</div>
+        <div class="pair">
+          <button class="zoombtn" data-zoom="wide">−</button>
+          <button class="zoombtn" data-zoom="tele">+</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Zoom Meeting</h2>
+    <button class="air" id="airBtn">TOGGLE AIR (video + mic)</button>
+    <div class="air-row">
+      <button id="vidBtn">Video only</button>
+      <button id="micBtn">Mic only</button>
+    </div>
+    <div class="status" id="zoomStatus"></div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+<script>window.PEW_PRESETS = {{ presets | tojson }};</script>
+<script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
