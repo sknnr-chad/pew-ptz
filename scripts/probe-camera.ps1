@@ -391,19 +391,51 @@ if (-not $Force) {
   if ($ans -ne "YES") { $summary.preset_test = "cancelled"; Write-Summary; exit 0 }
 }
 
-$results = @()
-$script:wrapped = $false
-$dir = 0
-foreach ($slot in $Slots) {
-  # Nudge the camera so each slot holds a distinct position: short pan
-  # bursts, alternating tilt, at moderate speed.
-  $tilt = 0x03
-  if ($dir % 2 -eq 0) { $tilt = 0x01 } else { $tilt = 0x02 }
+# Position the camera for each slot. Absolute moves are preferred: some
+# cameras only honour the first of several quick drive/stop bursts, which
+# leaves every slot saved at the same spot and makes the test meaningless.
+$useAbs = $false
+if ($null -ne $start) {
+  $useAbs = (Set-Absolute @{ pan = $start.pan; tilt = $start.tilt; zoom = $null }).ok
+}
+if ($useAbs) { Write-Info "positioning with absolute moves" }
+else { Write-Info "absolute moves unavailable; positioning with short drive bursts" }
+
+function Move-ForSlot([int]$k) {
+  if ($useAbs) {
+    # Distinct spots around the start: pan steps of 40, tilt alternating
+    # +/-30, so none coincides with the start (the parking spot).
+    $tiltOff = 30
+    if ($k % 2 -eq 1) { $tiltOff = -30 }
+    [void](Set-Absolute @{ pan = $start.pan + (($k % 7) + 1) * 40 - 160;
+                           tilt = $start.tilt + $tiltOff; zoom = $null })
+    return Get-Position
+  }
+  $tilt = 0x01
+  if ($k % 2 -eq 1) { $tilt = 0x02 }
   [void](Invoke-Visca ([byte[]](0x81, 0x01, 0x06, 0x01, 0x08, 0x06, 0x02, $tilt, 0xFF)))
   Start-Sleep -Milliseconds 400
   [void](Invoke-Visca ([byte[]](0x81, 0x01, 0x06, 0x01, 0x01, 0x01, 0x03, 0x03, 0xFF)))
-  $dir++
-  $pos = Wait-Settled
+  return Wait-Settled
+}
+
+function Move-ToParking {
+  if ($useAbs) {
+    [void](Set-Absolute @{ pan = $start.pan; tilt = $start.tilt; zoom = $null })
+    return Get-Position
+  }
+  [void](Invoke-Visca ([byte[]](0x81, 0x01, 0x06, 0x01, 0x08, 0x06, 0x01, 0x03, 0xFF)))
+  Start-Sleep -Milliseconds 600
+  [void](Invoke-Visca ([byte[]](0x81, 0x01, 0x06, 0x01, 0x01, 0x01, 0x03, 0x03, 0xFF)))
+  return Wait-Settled
+}
+
+$results = @()
+$script:wrapped = $false
+$k = 0
+foreach ($slot in $Slots) {
+  $pos = Move-ForSlot $k
+  $k++
 
   $set = Invoke-Visca ([byte[]](0x81, 0x01, 0x04, 0x3F, 0x01, $slot, 0xFF))
   $entry = [ordered]@{ slot = $slot; stored = $set.ok; set_error = $set.error;
@@ -420,10 +452,13 @@ $ok = 0; $stored = @($results | Where-Object { $_.stored })
 for ($i = $results.Count - 1; $i -ge 0; $i--) {
   $e = $results[$i]
   if (-not $e.stored) { continue }
-  [void](Invoke-Visca ([byte[]](0x81, 0x01, 0x06, 0x01, 0x08, 0x06, 0x01, 0x03, 0xFF)))
-  Start-Sleep -Milliseconds 600
-  [void](Invoke-Visca ([byte[]](0x81, 0x01, 0x06, 0x01, 0x01, 0x01, 0x03, 0x03, 0xFF)))
-  [void](Wait-Settled)
+  $parked = Move-ToParking
+  if ($null -ne $e.pan -and (Test-Near $parked $e)) {
+    # Camera is already where the slot points; a recall can't prove anything.
+    $e.recalled = "inconclusive"
+    Write-Info "slot $($e.slot): camera didn't leave the saved position before recall; inconclusive"
+    continue
+  }
 
   $rc = Invoke-Recall $e.slot
   if ($null -eq $e.pan) {
@@ -450,10 +485,18 @@ for ($i = $results.Count - 1; $i -ge 0; $i--) {
 }
 
 # Check distinct slots didn't collapse onto the same stored position.
-$dupes = $stored | Group-Object { "$($_.pan),$($_.tilt)" } | Where-Object { $_.Count -gt 1 }
-if ($dupes) { Write-Info "note: some slots were saved at identical positions; wrap detection is weaker for those." }
+$withPos = @($stored | Where-Object { $null -ne $_.pan })
+$distinct = @($withPos | ForEach-Object { "$($_.pan),$($_.tilt)" } | Sort-Object -Unique).Count
+$inconclusive = @($results | Where-Object { $_.recalled -eq "inconclusive" }).Count
 
-$summary.preset_test = "$ok of $($Slots.Count) slots recalled to their saved position"
+if ($withPos.Count -gt 1 -and $distinct -lt $withPos.Count) {
+  Write-Fail "slots were saved at identical positions: the camera didn't move between saves"
+  $summary.preset_test = "INCONCLUSIVE: only $distinct distinct position(s) for $($withPos.Count) slots"
+} elseif ($inconclusive -gt 0) {
+  $summary.preset_test = "$ok of $($Slots.Count) recalled correctly; $inconclusive inconclusive"
+} else {
+  $summary.preset_test = "$ok of $($Slots.Count) slots recalled to their saved position"
+}
 # Slots that overwrote another slot are aliases of it, not real storage.
 $aliases = @($results | ForEach-Object {
   if ("$($_.recalled)" -like "overwritten by slot *") { [int]("$($_.recalled)" -replace '\D', '') }
@@ -465,7 +508,7 @@ if ($aliases.Count -gt 0) {
   $limit = ($aliases | Measure-Object -Minimum).Minimum
   $good = @($good | Where-Object { $_ -lt $limit })
 }
-if ($good.Count -gt 0) { $summary.highest_good_slot = ($good | Measure-Object -Maximum).Maximum }
+if ($good.Count -gt 0 -and "$($summary.preset_test)" -notlike "INCONCLUSIVE*") { $summary.highest_good_slot = ($good | Measure-Object -Maximum).Maximum }
 if ($script:wrapped) {
   $summary.slot_wrapping = "yes: some slot numbers share storage (see FAIL lines)"
 }
