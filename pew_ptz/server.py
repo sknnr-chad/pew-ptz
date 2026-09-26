@@ -41,6 +41,7 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 from flask import Flask, jsonify, render_template_string, request
+from waitress import serve
 
 from pew_ptz.visca import (
     PAN_LEFT,
@@ -851,9 +852,10 @@ def main():
         log.info("  Autofocus: enabled")
     except Exception as e:
         log.warning("  Could not enable autofocus at startup: %s", e)
-    # Quiet Werkzeug's per-request access spam in the rotating log; healthz polls every few seconds.
-    logging.getLogger("werkzeug").setLevel(logging.WARNING)
-    app.run(host="0.0.0.0", port=SERVER_PORT, debug=False, threaded=True)
+    # Waitress instead of Flask's dev server. It doesn't write per-request
+    # access lines, so the rotating log stays quiet despite the 2s polling.
+    # 8 threads: each phone holds a status poll plus pan/zoom presses.
+    serve(app, host="0.0.0.0", port=SERVER_PORT, threads=8)
 
 
 if __name__ == "__main__":
