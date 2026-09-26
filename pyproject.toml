@@ -7,12 +7,16 @@ requires-python = ">=3.10"
 license = { text = "MIT" }
 dependencies = [
     "flask>=3.1.3,<4",
-    "pynput>=1.8.1,<2",
-    "uiautomation>=2.0.18,<3 ; sys_platform == 'win32'",
+    "pynput>=1.8.2,<2",
+    "uiautomation>=2.0.29,<3 ; sys_platform == 'win32'",
+    # Imported directly by zoom_state.py, so declare it rather than relying
+    # on uiautomation to pull it in.
+    "comtypes>=1.4.17,<2 ; sys_platform == 'win32'",
 ]
 
 [project.optional-dependencies]
-dev = ["ruff>=0.7"]
+# Pinned to a minor: ruff adds/changes lint rules between minors.
+dev = ["ruff~=0.16.9"]
 
 [project.scripts]
 pew-ptz = "pew_ptz.server:main"
