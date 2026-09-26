@@ -312,6 +312,11 @@ if ($null -eq $ver) {
   $rom = ($b[6] -shl 8) -bor $b[7]
   Write-Pass ("version: vendor=0x{0:X4} model=0x{1:X4} rom=0x{2:X4} sockets={3}" -f $vendor, $model, $rom, $b[8])
   $summary.visca = "ok ($($script:tx.name))"
+} elseif ($ver.ok) {
+  # Answered with a completion, just not the standard 10-byte version reply.
+  Write-Pass "version inquiry answered (non-standard reply: $(Hex $ver.body))"
+  $summary.visca = "ok ($($script:tx.name))"
+  $summary.version_reply = Hex $ver.body
 } else {
   Write-Fail "version inquiry: $($ver.error) (raw: $(Hex $ver.replies[-1]))"
   $summary.visca = "replies on $($script:tx.name), but $($ver.error)"
