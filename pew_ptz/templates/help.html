@@ -12,6 +12,17 @@
   <h1>How to use {{ title }}</h1>
   <p class="help-lead">Tap a topic to open it.</p>
 
+  {% if contact %}
+  <div class="card help-contact">
+    <div class="help-contact-title">Need help?</div>
+    {% if contact.name %}<div class="help-contact-name">{{ contact.name }}</div>{% endif %}
+    <div class="help-contact-links">
+      {% if contact.phone %}<a href="tel:{{ contact_tel }}">&#128222; {{ contact.phone }}</a>{% endif %}
+      {% if contact.email %}<a href="mailto:{{ contact.email }}">&#9993;&#65039; {{ contact.email }}</a>{% endif %}
+    </div>
+  </div>
+  {% endif %}
+
   <details class="card" open>
     <summary>Moving the camera</summary>
     <ul>
@@ -131,6 +142,8 @@
         PC{% if not presets_file_used %} (not present, so the default preset list is in use){% endif %}.
         See the README's &ldquo;Per-ward presets&rdquo; section. Add new names at the <b>end</b> of a
         list, then restart the controller.</li>
+      <li>Site settings such as the page title and the contact shown at the top of this page go in
+        <code>.env</code> in the install folder (copy <code>.env.example</code>), then restart.</li>
       <li>Logs, including every preset save and ward change: <code>logs\server.log</code> in the
         install folder.</li>
       <li>Camera: <code>{{ camera_ip }}</code>. Health check: <a href="/healthz">/healthz</a>.</li>

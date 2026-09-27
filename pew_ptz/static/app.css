@@ -154,3 +154,9 @@ body.help li { margin-bottom: 6px; }
 .help-table .pill { display: inline-block; margin: 1px 0; }
 body.help code { background: #1f2937; padding: 1px 5px; border-radius: 4px; font-size: 0.85em; }
 body.help a:not(.help-back) { color: #93c5fd; }
+.help-contact { border: 1px solid #b45309; }
+.help-contact-title { color: #fbbf24; font-weight: 700; font-size: 0.8rem;
+                      letter-spacing: 0.12em; text-transform: uppercase; }
+.help-contact-name { font-weight: 700; font-size: 1.05rem; margin: 4px 0; }
+.help-contact-links { display: flex; flex-direction: column; gap: 6px; }
+.help-contact-links a { color: #93c5fd; text-decoration: none; font-size: 1rem; overflow-wrap: anywhere; }

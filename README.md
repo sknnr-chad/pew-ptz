@@ -251,7 +251,10 @@ slots with `-Slots`, and use `-CameraIp` if the camera isn't at the default.
 
 ## Configuration
 
-All config is environment variables. No config file, no secrets.
+All config is environment variables. Put site-specific ones in a **`.env`**
+file in the install folder (copy `.env.example`). It's git-ignored and survives
+reinstalls, unlike `scripts\launch.cmd`, which the installer rewrites. Real
+environment variables win over `.env`. Restart the controller after editing it.
 
 | Var | Default | Notes |
 |---|---|---|
@@ -263,6 +266,7 @@ All config is environment variables. No config file, no secrets.
 | `PEW_PTZ_LOG_DIR` | unset | If set, writes `server.log` (rotating, 1 MB × 5) here. The installer points this at `<InstallDir>\logs`. |
 | `PEW_PTZ_PRESETS_FILE` | `presets.json` | Shared + per-ward presets (see [Per-ward presets](#per-ward-presets)). Relative to the working directory, which the installer sets to `<InstallDir>`. |
 | `PEW_PTZ_TITLE` | `pew-ptz` | Browser-tab and home-screen title, e.g. `Chapel PTZ` |
+| `PEW_PTZ_CONTACT_NAME`, `PEW_PTZ_CONTACT_EMAIL`, `PEW_PTZ_CONTACT_PHONE` | unset | Shown as a "Need help?" box at the top of the help page, with tap-to-call and tap-to-email links. Keep them in `.env` so personal details stay out of the repo. |
 | `PEW_PTZ_SKIP_FOCUS_CHECK` | unset | Set to `1` to bypass the "Zoom must be foreground" guard. Useful for UI testing on a dev box without Zoom. |
 
 ---

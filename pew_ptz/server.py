@@ -29,6 +29,12 @@ Config via environment variables:
     PEW_PTZ_LOG_DIR               where to put rotating server.log; if unset,
                                   logs only to stdout
     PEW_PTZ_TITLE                 browser tab / home-screen title. Default: pew-ptz
+    PEW_PTZ_CONTACT_NAME,         optional "Need help?" contact on the help page
+    PEW_PTZ_CONTACT_EMAIL,
+    PEW_PTZ_CONTACT_PHONE
+
+Any of these can go in a .env file in the working directory (see dotenv.py);
+real environment variables take precedence.
     PEW_PTZ_SKIP_FOCUS_CHECK      set to 1 to bypass the "Zoom must be
                                   foreground" guard (useful for UI testing)
 """
@@ -47,6 +53,7 @@ from pathlib import Path
 from flask import Flask, jsonify, render_template, request
 from waitress import serve
 
+from pew_ptz import dotenv
 from pew_ptz.presets import PresetStore
 from pew_ptz.visca import (
     PAN_LEFT,
@@ -58,6 +65,10 @@ from pew_ptz.visca import (
     ViscaIP,
 )
 from pew_ptz.zoom_state import ZoomStateReader
+
+# Site settings from .env in the install folder (see dotenv.py). Must run
+# before any _env() read below.
+_DOTENV_APPLIED = dotenv.load(os.environ.get("PEW_PTZ_ENV_FILE", ".env"))
 
 
 def _env(name: str, default: str = "") -> str:
@@ -76,6 +87,12 @@ PRESETS = [
 ]
 PRESETS_FILE = Path(_env("PRESETS_FILE", "presets.json"))
 PAGE_TITLE = _env("TITLE", "pew-ptz")
+# Optional "Need help?" box on the help page. Keep these in .env, not in git.
+CONTACT = {
+    "name": _env("CONTACT_NAME").strip(),
+    "email": _env("CONTACT_EMAIL").strip(),
+    "phone": _env("CONTACT_PHONE").strip(),
+}
 SKIP_FOCUS_CHECK = _env("SKIP_FOCUS_CHECK", "").lower() in ("1", "true", "yes")
 
 # Log to a rotating file when PEW_PTZ_LOG_DIR is set (the Task Scheduler launch
@@ -273,6 +290,9 @@ def help_page():
         active_ward=presets.active_ward,
         home=home.name if home else None,
         presets_file_used=PRESETS_FILE.exists(),
+        contact=CONTACT if any(CONTACT.values()) else None,
+        # tel: links want digits (and a leading +) only
+        contact_tel="".join(c for c in CONTACT["phone"] if c.isdigit() or c == "+"),
     )
 
 
@@ -430,6 +450,8 @@ def http_toggle_air():
 def main():
     log.info("pew-ptz starting on http://0.0.0.0:%s", SERVER_PORT)
     log.info("  Camera:        %s:%s", CAMERA_IP, VISCA_PORT)
+    if _DOTENV_APPLIED:
+        log.info("  .env settings: %s", ", ".join(sorted(_DOTENV_APPLIED)))
     log.info("  Presets:       %d shared, %d wards (%s)", len(presets.shared),
              len(presets.wards), PRESETS_FILE if PRESETS_FILE.exists() else "PEW_PTZ_PRESETS")
     log.info("  Active ward:   %s", presets.active_ward or "(none)")

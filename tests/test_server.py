@@ -257,3 +257,26 @@ def test_help_lists_wards_and_active_ward(client, wards):
 
 def test_index_links_to_help(client):
     assert 'href="/help"' in client.get("/").get_data(as_text=True)
+
+
+# ---- contact box on the help page --------------------------------------------
+
+
+def test_help_has_no_contact_box_by_default(client, monkeypatch):
+    monkeypatch.setattr(server, "CONTACT", {"name": "", "email": "", "phone": ""})
+    assert "Need help?" not in client.get("/help").get_data(as_text=True)
+
+
+def test_help_shows_contact(client, monkeypatch):
+    monkeypatch.setattr(server, "CONTACT", {
+        "name": "Pat Example", "email": "pat@example.com", "phone": "+1 (555) 555-0100"})
+    body = client.get("/help").get_data(as_text=True)
+    assert "Need help?" in body and "Pat Example" in body
+    assert 'href="mailto:pat@example.com"' in body
+    assert 'href="tel:+15555550100"' in body
+
+
+def test_help_contact_is_escaped(client, monkeypatch):
+    monkeypatch.setattr(server, "CONTACT", {"name": "<script>x</script>", "email": "", "phone": ""})
+    body = client.get("/help").get_data(as_text=True)
+    assert "<script>x</script>" not in body
