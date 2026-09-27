@@ -47,43 +47,39 @@
     <div class="presets" id="presets"></div>
   </div>
 
+  <!-- Camera: zoom buttons flank the D-pad so all movement is in one thumb area. -->
   <div class="card">
-    <h2>Pan / Tilt</h2>
-    <div class="dpad">
-      <button data-dir="up_left">↖</button>
-      <button data-dir="up">↑</button>
-      <button data-dir="up_right">↗</button>
-      <button data-dir="left">←</button>
-      <button class="home" id="homeBtn">HOME</button>
-      <button data-dir="right">→</button>
-      <button data-dir="down_left">↙</button>
-      <button data-dir="down">↓</button>
-      <button data-dir="down_right">↘</button>
+    <div class="ptz">
+      <button class="zoombtn" data-zoom="wide" aria-label="Zoom out">−<small>zoom</small></button>
+      <div class="dpad">
+        <button data-dir="up_left" aria-label="Up left">↖</button>
+        <button data-dir="up" aria-label="Up">↑</button>
+        <button data-dir="up_right" aria-label="Up right">↗</button>
+        <button data-dir="left" aria-label="Left">←</button>
+        <button class="home" id="homeBtn">HOME</button>
+        <button data-dir="right" aria-label="Right">→</button>
+        <button data-dir="down_left" aria-label="Down left">↙</button>
+        <button data-dir="down" aria-label="Down">↓</button>
+        <button data-dir="down_right" aria-label="Down right">↘</button>
+      </div>
+      <button class="zoombtn" data-zoom="tele" aria-label="Zoom in">+<small>zoom</small></button>
     </div>
     <div class="mode">
-      <span style="align-self:center; font-size:0.75rem; color:#94a3b8;">Speed:</span>
+      <span class="mode-label">Speed</span>
       <button data-speed="6" class="active">Slow</button>
       <button data-speed="12">Med</button>
       <button data-speed="20">Fast</button>
     </div>
-
-    <div class="row">
-      <div class="group">
-        <div class="label">Zoom</div>
-        <div class="pair">
-          <button class="zoombtn" data-zoom="wide">−</button>
-          <button class="zoombtn" data-zoom="tele">+</button>
-        </div>
-      </div>
-    </div>
   </div>
 
+  <!-- Zoom meeting: the buttons show the current state; pills appear only
+       when something needs attention. -->
   <div class="card">
-    <h2>Zoom Meeting</h2>
-    <button class="air" id="airBtn">TOGGLE AIR (video + mic)</button>
+    <button class="air" id="airBtn"><span id="airLabel">ON AIR / OFF AIR</span>
+      <small id="airHint">tap to toggle video + mic</small></button>
     <div class="air-row">
-      <button id="vidBtn">Video only</button>
-      <button id="micBtn">Mic only</button>
+      <button id="vidBtn">Video</button>
+      <button id="micBtn">Mic</button>
     </div>
     <div class="status" id="zoomStatus"></div>
   </div>

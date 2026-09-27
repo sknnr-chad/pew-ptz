@@ -17,7 +17,8 @@
     <ul>
       <li><b>Arrows:</b> press and <b>hold</b> to move; let go to stop. Diagonals work too.</li>
       <li><b>Speed:</b> Slow / Med / Fast under the arrows. Slow is easiest for landing on a person.</li>
-      <li><b>Zoom &minus; / +:</b> hold to zoom out or in; let go to stop.</li>
+      <li><b>Zoom &minus; / +:</b> the tall blue buttons either side of the arrows. Hold to zoom out
+        or in; let go to stop.</li>
       <li><b>HOME:</b> jumps to
         {% if home %}<b>{{ home }}</b>{% else %}the first preset{% endif %}
         ({% if active_ward %}the {{ active_ward }}'s first preset{% else %}the first preset{% endif %}).</li>
@@ -73,9 +74,12 @@
   <details class="card">
     <summary>Zoom meeting buttons</summary>
     <ul>
-      <li><b>TOGGLE AIR</b> turns Zoom video <em>and</em> microphone on or off together.
-        Red means you're <b>on air</b>; green means off air.</li>
-      <li><b>Video only</b> / <b>Mic only</b> toggle just one.</li>
+      <li>The big button shows whether you're <b>ON AIR</b> (red: video and mic both live) or
+        <b>OFF AIR</b> (green). Tap it to turn video <em>and</em> mic on or off together.</li>
+      <li><b>Video</b> and <b>Mic</b> show their own state (green ON, red OFF); tap one to toggle
+        just that.</li>
+      <li>&ldquo;assumed&rdquo; under ON/OFF AIR means the app can't read Zoom's real state right
+        now and is showing its best guess.</li>
       <li>These press Zoom's own shortcuts (Alt+V, Alt+A) on the host PC, so <b>the Zoom meeting
         window must be the active window</b> there. If it isn't, you'll see
         &ldquo;Zoom not focused&rdquo; and nothing is sent: click the Zoom window on the PC.</li>
@@ -83,25 +87,19 @@
   </details>
 
   <details class="card">
-    <summary>What the status pills mean</summary>
+    <summary>Warnings under the Zoom buttons</summary>
+    <p class="help-sub">Nothing shows here when all is well. If something does:</p>
     <table class="help-table">
-      <tr><td><span class="pill air-on">ON AIR</span> / <span class="pill air-off">OFF AIR</span></td>
-          <td>Whether both video and mic are live. &ldquo;(live)&rdquo; is read from Zoom itself;
-          &ldquo;(assumed)&rdquo; is the app's best guess.</td></tr>
-      <tr><td><span class="pill on">VID ON</span> <span class="pill off">MIC OFF</span></td>
-          <td>Video and mic separately.</td></tr>
-      <tr><td><span class="pill on">&#9679; live</span></td>
-          <td>The app can see Zoom's real mute/video state. Nothing to do.</td></tr>
+      <tr><td><span class="pill warn">&#9888; notepad.exe in front of Zoom</span></td>
+          <td>Another program is in front of Zoom on the PC. Click the Zoom window.</td></tr>
       <tr><td><span class="pill warn">toolbar hidden</span></td>
           <td>In a meeting, but Zoom's toolbar has hidden itself. On the PC, enable Zoom
           <i>Settings &rarr; Meetings &amp; Webinars &rarr; Controls &rarr; Keep meeting controls visible</i>.</td></tr>
       <tr><td><span class="pill warn">no meeting</span></td><td>Zoom isn't in a meeting yet.</td></tr>
       <tr><td><span class="pill warn">UIA off</span></td>
           <td>The app can't read Zoom's state on this PC; states are assumed. Toggles still work.</td></tr>
-      <tr><td><span class="pill on">Zoom focused</span></td><td>Zoom is the active window; toggles will work.</td></tr>
-      <tr><td><span class="pill warn">&#9888; notepad.exe</span></td>
-          <td>Another program is in front of Zoom on the PC. Click the Zoom window.</td></tr>
-      <tr><td><span class="pill">last 10:42:07</span></td><td>When a Zoom toggle was last sent from any phone.</td></tr>
+      <tr><td><span class="pill warn">focus check off</span></td>
+          <td>Testing mode: toggles are sent even if Zoom isn't in front.</td></tr>
     </table>
   </details>
 

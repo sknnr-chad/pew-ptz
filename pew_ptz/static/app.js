@@ -169,55 +169,37 @@ document.getElementById("micBtn").addEventListener("click", async () => {
 
 // ---- zoom state polling ----
 const zoomStatusEl = document.getElementById("zoomStatus");
-function esc(text) {
-  const d = document.createElement("div");
-  d.textContent = String(text);
-  return d.innerHTML;
-}
-function fmtTime(epoch) {
-  if (!epoch) return "—";
-  const d = new Date(epoch * 1000);
-  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-}
 const airBtnEl = document.getElementById("airBtn");
+const airLabelEl = document.getElementById("airLabel");
+const airHintEl = document.getElementById("airHint");
+const vidBtnEl = document.getElementById("vidBtn");
+const micBtnEl = document.getElementById("micBtn");
 function renderZoomStatus(s) {
-  if (!s) { zoomStatusEl.innerHTML = ""; return; }
-  const observed = !!s.observed;
-  const tag = observed ? "live" : "assumed";
-  const airCls = s.air_on ? "air-on" : "air-off";
-  const airTxt = (s.air_on ? "ON AIR" : "OFF AIR") + " (" + tag + ")";
-  // Tally-light: green when off-air, red when on-air. Pills carry the same
-  // info; this just makes the state legible at a glance.
+  if (!s) { zoomStatusEl.replaceChildren(); return; }
+  // The buttons carry the state: tally colour + ON AIR / OFF AIR on the big
+  // button, green/red on Video and Mic. "(assumed)" when Zoom's real state
+  // can't be read.
+  airLabelEl.textContent = s.air_on ? "ON AIR" : "OFF AIR";
+  airHintEl.textContent = "tap to toggle video + mic" + (s.observed ? "" : " · assumed");
   airBtnEl.classList.toggle("on-air",  !!s.air_on);
   airBtnEl.classList.toggle("off-air", !s.air_on);
-  const vidCls = s.video_on ? "on" : "off";
-  const micCls = s.mic_on ? "on" : "off";
-  let focusPill;
-  if (!s.focus_check_active) {
-    focusPill = `<span class="pill warn">focus check off</span>`;
-  } else if (s.zoom_focused) {
-    focusPill = `<span class="pill on">Zoom focused</span>`;
-  } else {
-    const fg = s.foreground_process || "no window";
-    focusPill = `<span class="pill warn">⚠ ${esc(fg)}</span>`;
-  }
-  let truthPill;
-  if (!s.uia_available) {
-    truthPill = `<span class="pill warn">UIA off</span>`;
-  } else if (observed) {
-    truthPill = `<span class="pill on">● live</span>`;
-  } else if (s.in_meeting === false) {
-    truthPill = `<span class="pill warn">no meeting</span>`;
-  } else {
-    truthPill = `<span class="pill warn">toolbar hidden</span>`;
-  }
-  zoomStatusEl.innerHTML =
-    `<span class="pill ${airCls}">${airTxt}</span>` +
-    `<span class="pill ${vidCls}">VID ${s.video_on ? "ON" : "OFF"}</span>` +
-    `<span class="pill ${micCls}">MIC ${s.mic_on ? "ON" : "OFF"}</span>` +
-    truthPill +
-    focusPill +
-    `<span class="pill">last ${fmtTime(s.last_toggled)}</span>`;
+  vidBtnEl.textContent = "Video: " + (s.video_on ? "ON" : "OFF");
+  micBtnEl.textContent = "Mic: " + (s.mic_on ? "ON" : "OFF");
+  vidBtnEl.className = s.video_on ? "on" : "off";
+  micBtnEl.className = s.mic_on ? "on" : "off";
+
+  // Pills only for things that need the operator's attention.
+  const warnings = [];
+  if (!s.focus_check_active) warnings.push("focus check off");
+  else if (!s.zoom_focused) warnings.push("⚠ " + (s.foreground_process || "no window") + " in front of Zoom");
+  if (!s.uia_available) warnings.push("UIA off");
+  else if (!s.observed) warnings.push(s.in_meeting === false ? "no meeting" : "toolbar hidden");
+  zoomStatusEl.replaceChildren(...warnings.map(text => {
+    const span = document.createElement("span");
+    span.className = "pill warn";
+    span.textContent = text;
+    return span;
+  }));
 }
 async function refreshZoomStatus() {
   try {
