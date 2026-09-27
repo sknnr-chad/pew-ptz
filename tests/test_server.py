@@ -230,3 +230,29 @@ def test_index_embeds_ward_presets(client, wards):
     client.post("/ward", json={"ward": "1st Ward"})
     body = client.get("/").get_data(as_text=True)
     assert "Bishopric" in body and "1st Ward" in body
+
+
+# ---- help page ----------------------------------------------------------------
+
+
+def test_help_without_wards(client):
+    r = client.get("/help")
+    assert r.status_code == 200
+    body = r.get_data(as_text=True)
+    assert "Moving the camera" in body
+    assert server.PRESETS[0] in body
+    assert "Pick your ward" not in body  # no ward instructions when there are none
+
+
+def test_help_lists_wards_and_active_ward(client, wards):
+    client.post("/ward", json={"ward": "1st Ward"})
+    body = client.get("/help").get_data(as_text=True)
+    assert "Pick your ward" in body
+    assert "1st Ward" in body and "Bishopric, Choir" in body
+    assert "no presets yet" in body  # 3rd Ward is empty
+    assert "Selected right now: <b>1st Ward</b>" in body
+    assert "<b>Bishopric</b>" in body  # HOME target
+
+
+def test_index_links_to_help(client):
+    assert 'href="/help"' in client.get("/").get_data(as_text=True)

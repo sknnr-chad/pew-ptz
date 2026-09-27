@@ -20,6 +20,7 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}" />
 </head>
 <body>
+  <a class="help-fab" href="/help" aria-label="Help">?</a>
   <div class="preview-wrap" id="previewWrap">
     <img id="preview" alt="Live preview"
          src="http://{{ camera_ip }}{{ camera_snapshot_path }}" />

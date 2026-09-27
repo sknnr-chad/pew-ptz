@@ -123,3 +123,32 @@ button:active { transform: scale(0.96); background: #0b1220; }
 }
 .presets button.ward-preset { background: #1e3a5f; }
 #presetsCard.editing .presets button { outline: 2px dashed #f59e0b; outline-offset: -2px; }
+
+/* ---- help ---- */
+.help-fab {
+  /* Top-left of the preview; the grid toggle owns the bottom-right. */
+  position: fixed; top: 12px; left: 12px; z-index: 100;
+  width: 36px; height: 36px; border-radius: 50%;
+  background: #1f2937; color: #fbbf24; border: 2px solid #fbbf24; text-decoration: none;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 800; font-size: 1.05rem; box-shadow: 0 2px 8px rgba(0,0,0,0.5);
+}
+.help-fab:active { background: #0b1220; }
+body.help h1 { font-size: 1.3rem; margin: 8px 0 4px; }
+.help-lead { color: #94a3b8; margin: 0 0 14px; font-size: 0.9rem; }
+.help-back { display: inline-block; color: #fbbf24; text-decoration: none; margin: 4px 0 10px; }
+body.help details > summary {
+  cursor: pointer; font-weight: 700; font-size: 1rem; color: #fbbf24; list-style-position: inside;
+}
+body.help details[open] > summary { margin-bottom: 8px; }
+body.help ul, body.help ol { padding-left: 20px; margin: 6px 0; line-height: 1.45; }
+body.help li { margin-bottom: 6px; }
+.help-sub { color: #94a3b8; font-size: 0.85rem; margin: 10px 0 6px; }
+.help-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+.help-table th, .help-table td {
+  text-align: left; vertical-align: top; padding: 6px 4px; border-top: 1px solid #1f2937;
+}
+.help-table th { color: #cbd5e1; white-space: nowrap; padding-right: 10px; }
+.help-table .pill { display: inline-block; margin: 1px 0; }
+body.help code { background: #1f2937; padding: 1px 5px; border-radius: 4px; font-size: 0.85em; }
+body.help a:not(.help-back) { color: #93c5fd; }

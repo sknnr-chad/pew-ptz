@@ -258,6 +258,24 @@ def index():
     )
 
 
+@app.get("/help")
+def help_page():
+    """Operator guide. Filled in with this install's wards and presets so it
+    matches what's on screen."""
+    usable = presets.usable()
+    home = usable.get(presets.home_slot())
+    return render_template(
+        "help.html",
+        title=PAGE_TITLE,
+        camera_ip=CAMERA_IP,
+        shared=[p.name for p in presets.shared],
+        wards=[{"name": w.name, "presets": [p.name for p in w.presets]} for w in presets.wards],
+        active_ward=presets.active_ward,
+        home=home.name if home else None,
+        presets_file_used=PRESETS_FILE.exists(),
+    )
+
+
 @app.post("/ptz/move/<direction>")
 def ptz_move(direction: str):
     if direction not in DIRS:
