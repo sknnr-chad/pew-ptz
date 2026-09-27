@@ -215,6 +215,10 @@ inserting or reordering names makes them point at different camera slots.
   for *every* phone, and it survives restarts (`active-ward.json`). The buttons
   switch to that ward's presets; HOME goes to its first preset. Only the
   presets on screen can be recalled or saved.
+- **The camera's IR remote:** its preset buttons 1–9 recall slots 1–9, i.e. the
+  first nine `shared` (No ward) presets, so saving with the remote changes those
+  buttons too (verified on the ClearTouch RL500). Ward presets (slots 16+) are
+  phone-only.
 - **Same names in every ward is fine:** each ward's "Speaker" is its own camera
   slot, so each ward saves its own framing. A new ward's presets start empty;
   save each one (below) before relying on it.

@@ -362,3 +362,8 @@ def test_copy_cancel(client, wards, camera, monkeypatch):
     st = client.get("/zoom_meeting/state").get_json()["copy"]
     assert st["result"] == "cancelled" and st["running"] is False
     assert client.post("/ptz/stop").status_code == 200  # unblocked again
+
+
+def test_help_explains_remote_buttons(client, wards):
+    body = client.get("/help").get_data(as_text=True)
+    assert "handheld remote" in body and "Ward presets are phone-only" in body
