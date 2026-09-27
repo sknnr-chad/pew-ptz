@@ -314,7 +314,7 @@ def presets_list():
 @app.post("/ward")
 def set_ward():
     """Set the server-wide active ward. Body: {"ward": "<name>"} or
-    {"ward": null} for shared presets only."""
+    {"ward": null} for the "No ward" presets."""
     data = request.get_json(silent=True) or {}
     name = data.get("ward")
     try:
@@ -331,10 +331,10 @@ def _client_ip() -> str:
 
 @app.post("/preset/recall/<int:n>")
 def preset_recall(n: int):
-    # Only the shared presets and the active ward's are reachable, so one
-    # ward's operator can't jump to another ward's framing by accident.
+    # Only the presets on screen (the selected ward's, or the "No ward" set)
+    # are reachable, so one ward can't jump to another's framing by accident.
     if n not in presets.usable() and n != presets.home_slot():
-        return jsonify({"error": f"slot {n} is not in the active ward or shared presets"}), 400
+        return jsonify({"error": f"slot {n} isn't one of the selected ward's presets"}), 400
     camera.preset_recall(n)
     return jsonify({"status": f"recalled preset {n}"})
 
@@ -343,10 +343,10 @@ def preset_recall(n: int):
 def preset_save(n: int):
     preset = presets.usable().get(n)
     if preset is None:
-        return jsonify({"error": f"slot {n} is not in the active ward or shared presets"}), 400
+        return jsonify({"error": f"slot {n} isn't one of the selected ward's presets"}), 400
     camera.preset_set(n)
     log.info("presets: saved %r (slot %d, ward %s) from %s",
-             preset.name, n, presets.active_ward or "shared", _client_ip())
+             preset.name, n, presets.active_ward or "no ward", _client_ip())
     return jsonify({"status": f"saved {preset.name}", "slot": n})
 
 

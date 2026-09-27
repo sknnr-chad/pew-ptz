@@ -20,7 +20,7 @@
       <li><b>Zoom &minus; / +:</b> hold to zoom out or in; let go to stop.</li>
       <li><b>HOME:</b> jumps to
         {% if home %}<b>{{ home }}</b>{% else %}the first preset{% endif %}
-        ({% if active_ward %}the {{ active_ward }}'s first preset{% else %}the first shared preset{% endif %}).</li>
+        ({% if active_ward %}the {{ active_ward }}'s first preset{% else %}the first preset{% endif %}).</li>
       <li><b>Grid lines</b> on the preview help frame shots (rule of thirds). The <b>#</b> button
         at the bottom-right of the preview turns them on or off; each phone remembers its choice.</li>
       <li>The preview refreshes a few times a second. If it freezes, the camera or Wi-Fi dropped
@@ -33,17 +33,16 @@
     <ul>
       <li><b>Tap a preset</b> to send the camera to that saved position.</li>
       {% if wards %}
-      <li><b>Pick your ward</b> in the box at the top of the Presets card. Your ward's presets are
-        listed first, then the shared ones everyone uses.</li>
+      <li><b>Pick your ward</b> in the box at the top of the Presets card. The buttons change to
+        your ward's own presets; each ward has its own saved positions.</li>
       <li>The ward choice is for <b>every phone</b>: if you change it, other operators' phones switch
         too within a couple of seconds, and it stays set after a restart.</li>
-      <li>You can only use the shared presets and the <b>selected</b> ward's presets. Choose
-        <b>No ward</b> to see just the shared ones.</li>
+      <li><b>No ward</b> shows the original chapel presets.</li>
       {% endif %}
     </ul>
     <p class="help-sub">This controller is set up with:</p>
     <table class="help-table">
-      <tr><th>Shared</th><td>{{ shared | join(", ") or "none" }}</td></tr>
+      <tr><th>{% if wards %}No ward{% else %}Presets{% endif %}</th><td>{{ shared | join(", ") or "none" }}</td></tr>
       {% for w in wards %}
       <tr><th>{{ w.name }}</th><td>{{ w.presets | join(", ") or "no presets yet" }}</td></tr>
       {% endfor %}
@@ -114,8 +113,8 @@
       <li><b>A preset goes somewhere odd:</b> it may never have been saved. Aim the camera and save
         it (see &ldquo;Saving a preset position&rdquo;).</li>
       {% if wards %}
-      <li><b>&ldquo;slot N is not in the active ward&rdquo;:</b> someone changed the ward on another
-        phone. Pick your ward again.</li>
+      <li><b>&ldquo;&hellip;isn't one of the selected ward's presets&rdquo;:</b> someone changed the
+        ward on another phone. Pick your ward again.</li>
       {% endif %}
       <li><b>Screen keeps going dark:</b> tap anywhere once after the page loads; the app then keeps
         the screen awake while it's open.</li>

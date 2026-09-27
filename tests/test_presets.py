@@ -81,7 +81,7 @@ def test_usable_slots_follow_active_ward(tmp_path):
     store = PresetStore.load(write(tmp_path, CONFIG), [])
     assert set(store.usable()) == {1, 2, 3}
     store.set_active("1st Ward")
-    assert set(store.usable()) == {1, 2, 3, 16, 17}
+    assert set(store.usable()) == {16, 17}  # ward only, no shared mixed in
     store.set_active(None)
     assert set(store.usable()) == {1, 2, 3}
 

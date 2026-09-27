@@ -185,8 +185,9 @@ on Windows (Python 3.12 and 3.14) for every push to `main` and every PR.
 
 ## Per-ward presets
 
-Several wards can share the chapel camera, each with its own named positions
-plus a set of shared ones. Copy `presets.example.json` to `presets.json` in the
+Several wards can share the chapel camera, each with its own set of named
+positions. Selecting a ward shows only that ward's presets; **No ward** shows
+the `shared` list (the original chapel presets). Copy `presets.example.json` to `presets.json` in the
 install folder and edit the names:
 
 ```json
@@ -204,16 +205,19 @@ position in its list:
 
 | Block | Camera slots | Limit |
 |---|---|---|
-| Shared | 1–15 | 15 presets |
+| `shared` (No ward) | 1–15 | 15 presets |
 | Ward 1, 2, 3, … | 16–31, 32–47, 48–63, … | 16 presets each, up to 14 wards |
 
 Because slots follow list order, **add new names at the end** of a list;
 inserting or reordering names makes them point at different camera slots.
 
 - **Choosing the ward:** the picker in the Presets card sets the active ward
-  for *every* phone, and it survives restarts (`active-ward.json`). A ward's
-  presets are listed first, then the shared ones. HOME goes to the ward's first
-  preset. Only the shared presets and the active ward's can be recalled.
+  for *every* phone, and it survives restarts (`active-ward.json`). The buttons
+  switch to that ward's presets; HOME goes to its first preset. Only the
+  presets on screen can be recalled or saved.
+- **Same names in every ward is fine:** each ward's "Speaker" is its own camera
+  slot, so each ward saves its own framing. A new ward's presets start empty;
+  save each one (below) before relying on it.
 - **Saving positions from the phone:** tap **Edit**, aim the camera, tap the
   preset and confirm. Edit mode turns off after each save. Every save is logged
   with the phone's IP in `server.log`.

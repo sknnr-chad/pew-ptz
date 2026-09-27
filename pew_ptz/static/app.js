@@ -91,17 +91,16 @@ function setEditing(on) {
 }
 editToggle.addEventListener("click", () => setEditing(!editing));
 
-function presetButton(p, cls) {
+function presetButton(p) {
   const b = document.createElement("button");
   b.textContent = p.name;
-  if (cls) b.classList.add(cls);
   b.addEventListener("click", async () => {
     if (!editing) {
       await post(`/preset/recall/${p.slot}`);
       flash(p.name);
       return;
     }
-    const where = presetData.active_ward && cls ? presetData.active_ward : "shared";
+    const where = presetData.active_ward || "No ward";
     if (!confirm(`Save the current view as "${p.name}" (${where})?`)) return;
     const j = await post(`/preset/save/${p.slot}`);
     if (j && j.status) flash(`Saved ${p.name}`);
@@ -110,22 +109,12 @@ function presetButton(p, cls) {
   return b;
 }
 
-function groupLabel(text) {
-  const d = document.createElement("div");
-  d.className = "group-label";
-  d.textContent = text;
-  return d;
-}
-
 function renderPresets() {
+  // One set at a time: the selected ward's presets, or the "No ward" set.
   presetsEl.replaceChildren();
   const ward = presetData.wards.find(w => w.name === presetData.active_ward);
-  if (ward && ward.presets.length) {
-    presetsEl.appendChild(groupLabel(ward.name));
-    ward.presets.forEach(p => presetsEl.appendChild(presetButton(p, "ward-preset")));
-    if (presetData.shared.length) presetsEl.appendChild(groupLabel("Shared"));
-  }
-  presetData.shared.forEach(p => presetsEl.appendChild(presetButton(p, null)));
+  const list = ward ? ward.presets : presetData.shared;
+  list.forEach(p => presetsEl.appendChild(presetButton(p)));
 
   wardSelect.hidden = presetData.wards.length === 0;
   wardSelect.replaceChildren();
