@@ -12,15 +12,27 @@
   <h1>How to use {{ title }}</h1>
   <p class="help-lead">Tap a topic to open it.</p>
 
+  {% if contact %}
+  <div class="card help-contact">
+    <div class="help-contact-title">Need help?</div>
+    {% if contact.name %}<div class="help-contact-name">{{ contact.name }}</div>{% endif %}
+    <div class="help-contact-links">
+      {% if contact.phone %}<a href="tel:{{ contact_tel }}">&#128222; {{ contact.phone }}</a>{% endif %}
+      {% if contact.email %}<a href="mailto:{{ contact.email }}">&#9993;&#65039; {{ contact.email }}</a>{% endif %}
+    </div>
+  </div>
+  {% endif %}
+
   <details class="card" open>
     <summary>Moving the camera</summary>
     <ul>
       <li><b>Arrows:</b> press and <b>hold</b> to move; let go to stop. Diagonals work too.</li>
       <li><b>Speed:</b> Slow / Med / Fast under the arrows. Slow is easiest for landing on a person.</li>
-      <li><b>Zoom &minus; / +:</b> hold to zoom out or in; let go to stop.</li>
+      <li><b>Zoom &minus; / +:</b> the tall blue buttons either side of the arrows. Hold to zoom out
+        or in; let go to stop.</li>
       <li><b>HOME:</b> jumps to
         {% if home %}<b>{{ home }}</b>{% else %}the first preset{% endif %}
-        ({% if active_ward %}the {{ active_ward }}'s first preset{% else %}the first shared preset{% endif %}).</li>
+        ({% if active_ward %}the {{ active_ward }}'s first preset{% else %}the first preset{% endif %}).</li>
       <li><b>Grid lines</b> on the preview help frame shots (rule of thirds). The <b>#</b> button
         at the bottom-right of the preview turns them on or off; each phone remembers its choice.</li>
       <li>The preview refreshes a few times a second. If it freezes, the camera or Wi-Fi dropped
@@ -33,17 +45,19 @@
     <ul>
       <li><b>Tap a preset</b> to send the camera to that saved position.</li>
       {% if wards %}
-      <li><b>Pick your ward</b> in the box at the top of the Presets card. Your ward's presets are
-        listed first, then the shared ones everyone uses.</li>
+      <li><b>Pick your ward</b> in the box at the top of the Presets card. The buttons change to
+        your ward's own presets; each ward has its own saved positions.</li>
       <li>The ward choice is for <b>every phone</b>: if you change it, other operators' phones switch
         too within a couple of seconds, and it stays set after a restart.</li>
-      <li>You can only use the shared presets and the <b>selected</b> ward's presets. Choose
-        <b>No ward</b> to see just the shared ones.</li>
+      <li><b>No ward</b> shows the original chapel presets.</li>
+      <li>A ward's presets can share names with the originals, but each is its <b>own saved
+        position</b>. A ward preset that has never been saved won't go anywhere useful: save it
+        first (see &ldquo;Saving a preset position&rdquo;).</li>
       {% endif %}
     </ul>
     <p class="help-sub">This controller is set up with:</p>
     <table class="help-table">
-      <tr><th>Shared</th><td>{{ shared | join(", ") or "none" }}</td></tr>
+      <tr><th>{% if wards %}No ward{% else %}Presets{% endif %}</th><td>{{ shared | join(", ") or "none" }}</td></tr>
       {% for w in wards %}
       <tr><th>{{ w.name }}</th><td>{{ w.presets | join(", ") or "no presets yet" }}</td></tr>
       {% endfor %}
@@ -71,9 +85,12 @@
   <details class="card">
     <summary>Zoom meeting buttons</summary>
     <ul>
-      <li><b>TOGGLE AIR</b> turns Zoom video <em>and</em> microphone on or off together.
-        Red means you're <b>on air</b>; green means off air.</li>
-      <li><b>Video only</b> / <b>Mic only</b> toggle just one.</li>
+      <li>The big button shows whether you're <b>ON AIR</b> (red: video and mic both live) or
+        <b>OFF AIR</b> (green). Tap it to turn video <em>and</em> mic on or off together.</li>
+      <li><b>Video</b> and <b>Mic</b> show their own state (green ON, red OFF); tap one to toggle
+        just that.</li>
+      <li>&ldquo;assumed&rdquo; under ON/OFF AIR means the app can't read Zoom's real state right
+        now and is showing its best guess.</li>
       <li>These press Zoom's own shortcuts (Alt+V, Alt+A) on the host PC, so <b>the Zoom meeting
         window must be the active window</b> there. If it isn't, you'll see
         &ldquo;Zoom not focused&rdquo; and nothing is sent: click the Zoom window on the PC.</li>
@@ -81,25 +98,19 @@
   </details>
 
   <details class="card">
-    <summary>What the status pills mean</summary>
+    <summary>Warnings under the Zoom buttons</summary>
+    <p class="help-sub">Nothing shows here when all is well. If something does:</p>
     <table class="help-table">
-      <tr><td><span class="pill air-on">ON AIR</span> / <span class="pill air-off">OFF AIR</span></td>
-          <td>Whether both video and mic are live. &ldquo;(live)&rdquo; is read from Zoom itself;
-          &ldquo;(assumed)&rdquo; is the app's best guess.</td></tr>
-      <tr><td><span class="pill on">VID ON</span> <span class="pill off">MIC OFF</span></td>
-          <td>Video and mic separately.</td></tr>
-      <tr><td><span class="pill on">&#9679; live</span></td>
-          <td>The app can see Zoom's real mute/video state. Nothing to do.</td></tr>
+      <tr><td><span class="pill warn">&#9888; notepad.exe in front of Zoom</span></td>
+          <td>Another program is in front of Zoom on the PC. Click the Zoom window.</td></tr>
       <tr><td><span class="pill warn">toolbar hidden</span></td>
           <td>In a meeting, but Zoom's toolbar has hidden itself. On the PC, enable Zoom
           <i>Settings &rarr; Meetings &amp; Webinars &rarr; Controls &rarr; Keep meeting controls visible</i>.</td></tr>
       <tr><td><span class="pill warn">no meeting</span></td><td>Zoom isn't in a meeting yet.</td></tr>
       <tr><td><span class="pill warn">UIA off</span></td>
           <td>The app can't read Zoom's state on this PC; states are assumed. Toggles still work.</td></tr>
-      <tr><td><span class="pill on">Zoom focused</span></td><td>Zoom is the active window; toggles will work.</td></tr>
-      <tr><td><span class="pill warn">&#9888; notepad.exe</span></td>
-          <td>Another program is in front of Zoom on the PC. Click the Zoom window.</td></tr>
-      <tr><td><span class="pill">last 10:42:07</span></td><td>When a Zoom toggle was last sent from any phone.</td></tr>
+      <tr><td><span class="pill warn">focus check off</span></td>
+          <td>Testing mode: toggles are sent even if Zoom isn't in front.</td></tr>
     </table>
   </details>
 
@@ -114,8 +125,8 @@
       <li><b>A preset goes somewhere odd:</b> it may never have been saved. Aim the camera and save
         it (see &ldquo;Saving a preset position&rdquo;).</li>
       {% if wards %}
-      <li><b>&ldquo;slot N is not in the active ward&rdquo;:</b> someone changed the ward on another
-        phone. Pick your ward again.</li>
+      <li><b>&ldquo;&hellip;isn't one of the selected ward's presets&rdquo;:</b> someone changed the
+        ward on another phone. Pick your ward again.</li>
       {% endif %}
       <li><b>Screen keeps going dark:</b> tap anywhere once after the page loads; the app then keeps
         the screen awake while it's open.</li>
@@ -131,6 +142,8 @@
         PC{% if not presets_file_used %} (not present, so the default preset list is in use){% endif %}.
         See the README's &ldquo;Per-ward presets&rdquo; section. Add new names at the <b>end</b> of a
         list, then restart the controller.</li>
+      <li>Site settings such as the page title and the contact shown at the top of this page go in
+        <code>.env</code> in the install folder (copy <code>.env.example</code>), then restart.</li>
       <li>Logs, including every preset save and ward change: <code>logs\server.log</code> in the
         install folder.</li>
       <li>Camera: <code>{{ camera_ip }}</code>. Health check: <a href="/healthz">/healthz</a>.</li>

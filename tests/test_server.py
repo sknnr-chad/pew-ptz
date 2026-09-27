@@ -201,11 +201,12 @@ def test_clear_ward(client, wards):
     assert client.post("/ward", json={"ward": None}).get_json()["active_ward"] is None
 
 
-def test_recall_limited_to_shared_and_active_ward(client, wards, camera):
-    assert client.post("/preset/recall/1").status_code == 200       # shared
+def test_recall_limited_to_presets_on_screen(client, wards, camera):
+    assert client.post("/preset/recall/1").status_code == 200       # No ward set
     assert client.post("/preset/recall/16").status_code == 400      # 1st Ward, not active
     client.post("/ward", json={"ward": "1st Ward"})
     assert client.post("/preset/recall/16").status_code == 200
+    assert client.post("/preset/recall/2").status_code == 400       # No-ward set hidden now
     assert client.post("/preset/recall/32").status_code == 400      # 2nd Ward
     assert [c for c in camera.calls if c[0] == "preset_recall"] == [
         ("preset_recall", (1,), {}), ("preset_recall", (16,), {})]
@@ -222,7 +223,7 @@ def test_save_preset(client, wards, camera):
 def test_save_rejects_other_wards_and_unused_slots(client, wards, camera):
     client.post("/ward", json={"ward": "2nd Ward"})
     assert client.post("/preset/save/16").status_code == 400   # 1st Ward's slot
-    assert client.post("/preset/save/3").status_code == 400    # no shared preset 3
+    assert client.post("/preset/save/1").status_code == 400    # No-ward set, hidden
     assert not [c for c in camera.calls if c[0] == "preset_set"]
 
 
@@ -256,3 +257,26 @@ def test_help_lists_wards_and_active_ward(client, wards):
 
 def test_index_links_to_help(client):
     assert 'href="/help"' in client.get("/").get_data(as_text=True)
+
+
+# ---- contact box on the help page --------------------------------------------
+
+
+def test_help_has_no_contact_box_by_default(client, monkeypatch):
+    monkeypatch.setattr(server, "CONTACT", {"name": "", "email": "", "phone": ""})
+    assert "Need help?" not in client.get("/help").get_data(as_text=True)
+
+
+def test_help_shows_contact(client, monkeypatch):
+    monkeypatch.setattr(server, "CONTACT", {
+        "name": "Pat Example", "email": "pat@example.com", "phone": "+1 (555) 555-0100"})
+    body = client.get("/help").get_data(as_text=True)
+    assert "Need help?" in body and "Pat Example" in body
+    assert 'href="mailto:pat@example.com"' in body
+    assert 'href="tel:+15555550100"' in body
+
+
+def test_help_contact_is_escaped(client, monkeypatch):
+    monkeypatch.setattr(server, "CONTACT", {"name": "<script>x</script>", "email": "", "phone": ""})
+    body = client.get("/help").get_data(as_text=True)
+    assert "<script>x</script>" not in body

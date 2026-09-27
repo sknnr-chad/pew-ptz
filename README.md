@@ -185,8 +185,9 @@ on Windows (Python 3.12 and 3.14) for every push to `main` and every PR.
 
 ## Per-ward presets
 
-Several wards can share the chapel camera, each with its own named positions
-plus a set of shared ones. Copy `presets.example.json` to `presets.json` in the
+Several wards can share the chapel camera, each with its own set of named
+positions. Selecting a ward shows only that ward's presets; **No ward** shows
+the `shared` list (the original chapel presets). Copy `presets.example.json` to `presets.json` in the
 install folder and edit the names:
 
 ```json
@@ -204,16 +205,19 @@ position in its list:
 
 | Block | Camera slots | Limit |
 |---|---|---|
-| Shared | 1–15 | 15 presets |
+| `shared` (No ward) | 1–15 | 15 presets |
 | Ward 1, 2, 3, … | 16–31, 32–47, 48–63, … | 16 presets each, up to 14 wards |
 
 Because slots follow list order, **add new names at the end** of a list;
 inserting or reordering names makes them point at different camera slots.
 
 - **Choosing the ward:** the picker in the Presets card sets the active ward
-  for *every* phone, and it survives restarts (`active-ward.json`). A ward's
-  presets are listed first, then the shared ones. HOME goes to the ward's first
-  preset. Only the shared presets and the active ward's can be recalled.
+  for *every* phone, and it survives restarts (`active-ward.json`). The buttons
+  switch to that ward's presets; HOME goes to its first preset. Only the
+  presets on screen can be recalled or saved.
+- **Same names in every ward is fine:** each ward's "Speaker" is its own camera
+  slot, so each ward saves its own framing. A new ward's presets start empty;
+  save each one (below) before relying on it.
 - **Saving positions from the phone:** tap **Edit**, aim the camera, tap the
   preset and confirm. Edit mode turns off after each save. Every save is logged
   with the phone's IP in `server.log`.
@@ -247,7 +251,10 @@ slots with `-Slots`, and use `-CameraIp` if the camera isn't at the default.
 
 ## Configuration
 
-All config is environment variables. No config file, no secrets.
+All config is environment variables. Put site-specific ones in a **`.env`**
+file in the install folder (copy `.env.example`). It's git-ignored and survives
+reinstalls, unlike `scripts\launch.cmd`, which the installer rewrites. Real
+environment variables win over `.env`. Restart the controller after editing it.
 
 | Var | Default | Notes |
 |---|---|---|
@@ -259,6 +266,7 @@ All config is environment variables. No config file, no secrets.
 | `PEW_PTZ_LOG_DIR` | unset | If set, writes `server.log` (rotating, 1 MB × 5) here. The installer points this at `<InstallDir>\logs`. |
 | `PEW_PTZ_PRESETS_FILE` | `presets.json` | Shared + per-ward presets (see [Per-ward presets](#per-ward-presets)). Relative to the working directory, which the installer sets to `<InstallDir>`. |
 | `PEW_PTZ_TITLE` | `pew-ptz` | Browser-tab and home-screen title, e.g. `Chapel PTZ` |
+| `PEW_PTZ_CONTACT_NAME`, `PEW_PTZ_CONTACT_EMAIL`, `PEW_PTZ_CONTACT_PHONE` | unset | Shown as a "Need help?" box at the top of the help page, with tap-to-call and tap-to-email links. Keep them in `.env` so personal details stay out of the repo. |
 | `PEW_PTZ_SKIP_FOCUS_CHECK` | unset | Set to `1` to bypass the "Zoom must be foreground" guard. Useful for UI testing on a dev box without Zoom. |
 
 ---

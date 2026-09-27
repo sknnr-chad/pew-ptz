@@ -27,8 +27,9 @@ append new names to the end of a list instead.
 With no presets.json, the PEW_PTZ_PRESETS names become the shared presets and
 there are no wards — exactly the pre-ward behaviour.
 
-The active ward is server-wide and persisted in active-ward.json next to
-presets.json so it survives restarts.
+Selecting a ward shows only that ward's presets; "No ward" shows only the
+shared ones. The active ward is server-wide and persisted in active-ward.json
+next to presets.json so it survives restarts.
 """
 
 from __future__ import annotations
@@ -165,13 +166,12 @@ class PresetStore:
     # ---- lookups ------------------------------------------------------------
 
     def usable(self) -> dict[int, Preset]:
-        """Slots the operator may recall or save right now: shared plus the
-        active ward's."""
-        out = {p.slot: p for p in self.shared}
+        """Slots the operator may recall or save right now: the active ward's
+        presets, or the shared ("No ward") presets when no ward is selected.
+        The two are never mixed on screen."""
         ward = self._ward(self.active_ward)
-        if ward:
-            out.update({p.slot: p for p in ward.presets})
-        return out
+        source = ward.presets if ward else self.shared
+        return {p.slot: p for p in source}
 
     def home_slot(self) -> int:
         ward = self._ward(self.active_ward)
