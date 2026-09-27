@@ -83,12 +83,46 @@ const editToggle = document.getElementById("editToggle");
 const editBanner = document.getElementById("editBanner");
 let editing = false;
 
+const copyBtn = document.getElementById("copyBtn");
 function setEditing(on) {
   editing = on;
   editToggle.setAttribute("aria-pressed", on ? "true" : "false");
   editToggle.textContent = on ? "Done" : "Edit";
   editBanner.hidden = !on;
   presetsCard.classList.toggle("editing", on);
+  // Offer the one-time copy only inside a ward.
+  const ward = presetData.active_ward;
+  copyBtn.hidden = !ward;
+  if (ward) copyBtn.textContent = `Copy No-ward positions into ${ward}`;
+}
+
+// ---- copy No-ward positions into the selected ward ----
+const copyProgress = document.getElementById("copyProgress");
+const copyText = document.getElementById("copyText");
+let copyWasRunning = false;
+copyBtn.addEventListener("click", async () => {
+  const ward = presetData.active_ward;
+  const n = Math.min(presetData.shared.length,
+    (presetData.wards.find(w => w.name === ward) || { presets: [] }).presets.length);
+  if (!confirm(`Copy the ${n} No-ward camera positions into ${ward}?\n\n` +
+               `This replaces ${ward}'s saved positions (names stay the same). ` +
+               `The camera will move through each shot; it takes about a minute.`)) return;
+  const j = await post("/ward/copy-no-ward");
+  if (j && j.copy) { setEditing(false); renderCopy(j.copy); }
+});
+document.getElementById("copyCancel").addEventListener("click", () => post("/ward/copy-no-ward/cancel"));
+
+function renderCopy(c) {
+  if (!c) return;
+  copyProgress.hidden = !c.running;
+  if (c.running) {
+    copyText.textContent = `Copying positions into ${c.ward}: ${c.done} of ${c.total}…`;
+  } else if (copyWasRunning) {
+    flash(c.result === "done" ? `Copied ${c.done} positions into ${c.ward}`
+        : c.result === "cancelled" ? `Stopped after ${c.done} of ${c.total}`
+        : `⚠ Copy failed (${c.result})`);
+  }
+  copyWasRunning = !!c.running;
 }
 editToggle.addEventListener("click", () => setEditing(!editing));
 
@@ -244,6 +278,7 @@ async function refreshZoomStatus() {
     if (r.ok) {
       const st = await r.json();
       renderZoomStatus(st);
+      renderCopy(st.copy);
       if ((st.active_ward || null) !== (presetData.active_ward || null) ||
           st.presets_version !== presetData.version) reloadPresets();
     }

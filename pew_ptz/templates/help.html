@@ -80,6 +80,14 @@
       </li>
     </ol>
     <ul>
+      {% if wards %}
+      <li><b>Setting up a ward quickly:</b> pick the ward, tap <b>Edit</b>, then
+        <b>Copy No-ward positions into &hellip;</b>. The camera visibly moves through each of the
+        original shots and saves it into the ward's matching button (first to first, second to
+        second). It takes about a minute; the camera buttons are locked until it finishes, and
+        <b>Stop</b> ends it early. It replaces the ward's saved positions but keeps its button names.
+        Afterwards, adjust just the shots that differ.</li>
+      {% endif %}
       <li>Edit mode turns itself off after each change, so a stray tap can't change anything else.
         Tap <b>Done</b> or <b>Cancel</b> to leave without changing anything.</li>
       <li>Changes apply to everyone using that preset, and other phones update within a couple of

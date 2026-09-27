@@ -107,6 +107,13 @@ def wards(monkeypatch, tmp_path):
     return store
 
 
+@pytest.fixture(autouse=True)
+def reset_copy(monkeypatch):
+    """Fresh copy-job state for each test."""
+    monkeypatch.setattr(server, "_copy", {"running": False, "ward": None, "done": 0,
+                                          "total": 0, "cancel": False, "result": None})
+
+
 @pytest.fixture
 def client(camera, zoom_reader, chords, monkeypatch):
     monkeypatch.setattr(

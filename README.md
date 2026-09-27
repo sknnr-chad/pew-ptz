@@ -227,6 +227,13 @@ inserting or reordering names makes them point at different camera slots.
   is logged with the phone's IP in `server.log`. Buttons can be renamed but
   not added or removed from the phone. Note that `presets.json` is rewritten
   in a standard layout, so hand-added formatting isn't kept.
+- **Starting a ward from the original positions:** in a ward's Edit mode, tap
+  **Copy No-ward positions into …**. The controller recalls each No-ward
+  preset and saves it into the same position in the ward's list, waiting
+  `PEW_PTZ_COPY_SETTLE_SECONDS` (default 5) for the camera to arrive each time
+  — about a minute for nine. Camera and ward controls are locked until it
+  finishes or someone taps **Stop**. If shots come out saved mid-move, raise
+  the setting in `.env`.
 - **No `presets.json`?** `PEW_PTZ_PRESETS` names are used as shared presets in
   slots 1–9, exactly as before. A malformed file is logged and ignored the same
   way, so a typo never takes the camera controls away.
@@ -273,6 +280,7 @@ environment variables win over `.env`. Restart the controller after editing it.
 | `PEW_PTZ_PRESETS_FILE` | `presets.json` | Shared + per-ward presets (see [Per-ward presets](#per-ward-presets)). Relative to the working directory, which the installer sets to `<InstallDir>`. |
 | `PEW_PTZ_TITLE` | `pew-ptz` | Browser-tab and home-screen title, e.g. `Chapel PTZ` |
 | `PEW_PTZ_CONTACT_NAME`, `PEW_PTZ_CONTACT_EMAIL`, `PEW_PTZ_CONTACT_PHONE` | unset | Shown as a "Need help?" box at the top of the help page, with tap-to-call and tap-to-email links. Keep them in `.env` so personal details stay out of the repo. |
+| `PEW_PTZ_COPY_SETTLE_SECONDS` | `5` | Seconds the "Copy No-ward positions" action waits for the camera to reach each shot before saving it. |
 | `PEW_PTZ_SKIP_FOCUS_CHECK` | unset | Set to `1` to bypass the "Zoom must be foreground" guard. Useful for UI testing on a dev box without Zoom. |
 
 ---

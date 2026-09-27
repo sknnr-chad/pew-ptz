@@ -45,6 +45,7 @@ import ctypes
 import logging
 import os
 import sys
+import threading
 import time
 from ctypes import wintypes
 from logging.handlers import RotatingFileHandler
@@ -94,6 +95,10 @@ CONTACT = {
     "phone": _env("CONTACT_PHONE").strip(),
 }
 SKIP_FOCUS_CHECK = _env("SKIP_FOCUS_CHECK", "").lower() in ("1", "true", "yes")
+# "Copy No-ward positions into this ward": how long to let the camera travel
+# to each preset before saving it. The camera's replies can't be relied on to
+# say when it has arrived, so this is a fixed wait.
+COPY_SETTLE_SECONDS = float(_env("COPY_SETTLE_SECONDS", "5"))
 
 # Log to a rotating file when PEW_PTZ_LOG_DIR is set (the Task Scheduler launch
 # uses pythonw.exe so stdout is gone — without this we'd be flying blind).
@@ -227,6 +232,7 @@ def _public_state() -> dict:
         "foreground_process": proc,
         "active_ward": presets.active_ward,  # lets other phones notice a ward change
         "presets_version": presets.version,  # ...and a rename
+        "copy": _copy_state(),
         "focus_check_active": focus_active,
         # Source-of-truth metadata so the UI can show observed vs assumed:
         "observed": uia["observed"],
@@ -330,6 +336,92 @@ def zoom_action(action: str):
 @app.get("/presets")
 def presets_list():
     return jsonify(presets.payload())
+
+
+# ---- Copy No-ward positions into a ward ------------------------------------
+# Recalls each No-ward preset in turn and saves it into the same position in
+# the active ward's list. Runs in the background (about COPY_SETTLE_SECONDS
+# per preset); other camera commands are refused until it finishes so nobody
+# moves the camera mid-copy.
+
+_copy_lock = threading.Lock()
+_copy = {"running": False, "ward": None, "done": 0, "total": 0,
+         "cancel": False, "result": None}
+
+
+def _copy_state() -> dict:
+    with _copy_lock:
+        return {k: v for k, v in _copy.items() if k != "cancel"}
+
+
+def _run_copy(ward: str, pairs: list[tuple[int, int]]) -> None:
+    result = "done"
+    try:
+        for i, (src, dst) in enumerate(pairs):
+            with _copy_lock:
+                if _copy["cancel"]:
+                    result = "cancelled"
+                    break
+            camera.preset_recall(src)
+            time.sleep(COPY_SETTLE_SECONDS)
+            camera.preset_set(dst)
+            time.sleep(1.0)  # let the save finish before the next recall
+            with _copy_lock:
+                _copy["done"] = i + 1
+    except Exception as e:  # pragma: no cover - camera/network failure
+        log.exception("presets: copy into %s failed", ward)
+        result = f"error: {e}"
+    finally:
+        with _copy_lock:
+            _copy["running"] = False
+            _copy["result"] = result
+            done = _copy["done"]
+        log.info("presets: copy into %s %s (%d of %d)", ward, result, done, len(pairs))
+
+
+def _start_copy_thread(fn) -> None:
+    threading.Thread(target=fn, daemon=True, name="preset-copy").start()
+
+
+@app.post("/ward/copy-no-ward")
+def copy_no_ward():
+    ward_name = presets.active_ward
+    if ward_name is None:
+        return jsonify({"error": "pick a ward first"}), 400
+    ward = next(w for w in presets.wards if w.name == ward_name)
+    pairs = [(s.slot, d.slot) for s, d in zip(presets.shared, ward.presets, strict=False)]
+    if not pairs:
+        return jsonify({"error": "nothing to copy"}), 400
+    with _copy_lock:
+        if _copy["running"]:
+            return jsonify({"error": "a copy is already running"}), 409
+        _copy.update(running=True, ward=ward_name, done=0, total=len(pairs),
+                     cancel=False, result=None)
+    log.info("presets: copying %d No-ward positions into %s, from %s",
+             len(pairs), ward_name, _client_ip())
+    _start_copy_thread(lambda: _run_copy(ward_name, pairs))
+    return jsonify({"status": "copying", "copy": _copy_state()})
+
+
+@app.post("/ward/copy-no-ward/cancel")
+def copy_no_ward_cancel():
+    with _copy_lock:
+        _copy["cancel"] = True
+    return jsonify({"status": "cancelling", "copy": _copy_state()})
+
+
+@app.before_request
+def _block_camera_during_copy():
+    """While a copy runs, refuse anything that would move the camera or
+    change the ward, so the copy isn't knocked off course."""
+    with _copy_lock:
+        running = _copy["running"]
+    if not running or request.method != "POST":
+        return None
+    p = request.path
+    if p.startswith(("/ptz/", "/zoom/", "/preset/")) or p == "/ward":
+        return jsonify({"error": "copying presets; please wait a minute"}), 409
+    return None
 
 
 @app.post("/ward")
