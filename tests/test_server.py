@@ -299,3 +299,66 @@ def test_rename_route(client, wards):
 def test_rename_route_rejects_bad_names(client, wards):
     assert client.post("/preset/rename/1", json={"name": ""}).status_code == 400
     assert client.post("/preset/rename/16", json={"name": "X"}).status_code == 400  # not on screen
+
+
+# ---- copy No-ward positions into a ward ----------------------------------------
+
+
+def test_copy_needs_a_ward(client, wards):
+    r = client.post("/ward/copy-no-ward")
+    assert r.status_code == 400 and "pick a ward" in r.get_json()["error"]
+
+
+def test_copy_recalls_each_no_ward_preset_and_saves_into_ward(client, wards, camera, monkeypatch):
+    monkeypatch.setattr(server, "_start_copy_thread", lambda fn: fn())  # run inline
+    client.post("/ward", json={"ward": "1st Ward"})
+    camera.calls.clear()
+    r = client.post("/ward/copy-no-ward")
+    assert r.status_code == 200
+    # No ward has 2 presets (slots 1, 2); 1st Ward has 2 (slots 16, 17).
+    assert camera.calls == [
+        ("preset_recall", (1,), {}), ("preset_set", (16,), {}),
+        ("preset_recall", (2,), {}), ("preset_set", (17,), {}),
+    ]
+    st = client.get("/zoom_meeting/state").get_json()["copy"]
+    assert st == {"running": False, "ward": "1st Ward", "done": 2, "total": 2, "result": "done"}
+
+
+def test_copy_only_as_many_as_the_ward_has(client, wards, camera, monkeypatch):
+    monkeypatch.setattr(server, "_start_copy_thread", lambda fn: fn())
+    client.post("/ward", json={"ward": "2nd Ward"})  # one preset
+    camera.calls.clear()
+    client.post("/ward/copy-no-ward")
+    assert camera.calls == [("preset_recall", (1,), {}), ("preset_set", (32,), {})]
+
+
+def test_copy_with_empty_ward_is_400(client, wards):
+    client.post("/ward", json={"ward": "3rd Ward"})
+    assert client.post("/ward/copy-no-ward").status_code == 400
+
+
+def test_camera_and_ward_changes_blocked_while_copying(client, wards, camera, monkeypatch):
+    started = []
+    monkeypatch.setattr(server, "_start_copy_thread", started.append)  # don't run yet
+    client.post("/ward", json={"ward": "1st Ward"})
+    assert client.post("/ward/copy-no-ward").status_code == 200
+    for path in ("/ptz/stop", "/zoom/tele", "/preset/recall/16", "/preset/save/16"):
+        assert client.post(path).status_code == 409, path
+    assert client.post("/ward", json={"ward": None}).status_code == 409
+    assert client.post("/ward/copy-no-ward").status_code == 409     # no second copy
+    assert client.get("/zoom_meeting/state").status_code == 200     # polling still works
+    assert client.post("/zoom_meeting/toggle_mic").status_code == 200  # Zoom still works
+
+
+def test_copy_cancel(client, wards, camera, monkeypatch):
+    jobs = []
+    monkeypatch.setattr(server, "_start_copy_thread", jobs.append)
+    client.post("/ward", json={"ward": "1st Ward"})
+    client.post("/ward/copy-no-ward")
+    client.post("/ward/copy-no-ward/cancel")
+    camera.calls.clear()
+    jobs[0]()  # run the job now: it sees the cancel before moving the camera
+    assert camera.calls == []
+    st = client.get("/zoom_meeting/state").get_json()["copy"]
+    assert st["result"] == "cancelled" and st["running"] is False
+    assert client.post("/ptz/stop").status_code == 200  # unblocked again
