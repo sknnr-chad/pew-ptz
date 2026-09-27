@@ -226,6 +226,7 @@ def _public_state() -> dict:
         "zoom_focused": is_zoom,
         "foreground_process": proc,
         "active_ward": presets.active_ward,  # lets other phones notice a ward change
+        "presets_version": presets.version,  # ...and a rename
         "focus_check_active": focus_active,
         # Source-of-truth metadata so the UI can show observed vs assumed:
         "observed": uia["observed"],
@@ -368,6 +369,21 @@ def preset_save(n: int):
     log.info("presets: saved %r (slot %d, ward %s) from %s",
              preset.name, n, presets.active_ward or "no ward", _client_ip())
     return jsonify({"status": f"saved {preset.name}", "slot": n})
+
+
+@app.post("/preset/rename/<int:n>")
+def preset_rename(n: int):
+    """Rename a preset on screen. Body: {"name": "<new name>"}. The camera
+    slot and saved position don't change."""
+    data = request.get_json(silent=True) or {}
+    try:
+        old = presets.rename(n, data.get("name", ""))
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    new = presets.usable()[n].name
+    log.info("presets: renamed %r -> %r (slot %d, ward %s) from %s",
+             old.name, new, n, presets.active_ward or "no ward", _client_ip())
+    return jsonify({"status": f"renamed to {new}", **presets.payload()})
 
 
 @app.get("/healthz")

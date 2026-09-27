@@ -42,7 +42,7 @@
       <button class="edit-toggle" id="editToggle" aria-pressed="false">Edit</button>
     </div>
     <div class="edit-banner" id="editBanner" hidden>
-      Edit mode: aim the camera, then tap the preset to save this view to it.
+      Edit mode: tap a preset to save the current view to it or rename it.
     </div>
     <div class="presets" id="presets"></div>
   </div>
@@ -82,6 +82,17 @@
       <button id="micBtn">Mic</button>
     </div>
     <div class="status" id="zoomStatus"></div>
+  </div>
+
+  <!-- Edit-mode actions for one preset. -->
+  <div class="sheet" id="presetSheet" hidden>
+    <div class="sheet-box" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
+      <div class="sheet-title" id="sheetTitle"></div>
+      <div class="sheet-sub" id="sheetSub"></div>
+      <button class="sheet-save" id="sheetSave">Save current view here</button>
+      <button id="sheetRename">Rename…</button>
+      <button class="sheet-cancel" id="sheetCancel">Cancel</button>
+    </div>
   </div>
 
   <div class="toast" id="toast"></div>

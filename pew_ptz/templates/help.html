@@ -52,7 +52,7 @@
       <li><b>No ward</b> shows the original chapel presets.</li>
       <li>A ward's presets can share names with the originals, but each is its <b>own saved
         position</b>. A ward preset that has never been saved won't go anywhere useful: save it
-        first (see &ldquo;Saving a preset position&rdquo;).</li>
+        first (see &ldquo;Saving a position or renaming a preset&rdquo;).</li>
       {% endif %}
     </ul>
     <p class="help-sub">This controller is set up with:</p>
@@ -66,19 +66,26 @@
   </details>
 
   <details class="card">
-    <summary>Saving a preset position</summary>
+    <summary>Saving a position or renaming a preset</summary>
     <ol>
-      {% if wards %}<li>Pick the right ward first (saving a ward preset only affects that ward).</li>{% endif %}
-      <li>Aim and zoom the camera exactly how you want the shot.</li>
+      {% if wards %}<li>Pick the right ward first. Changes only affect the selected ward's buttons.</li>{% endif %}
+      <li>To save a position, first aim and zoom the camera exactly how you want the shot.</li>
       <li>Tap <b>Edit</b> in the Presets card. The buttons get a dashed outline.</li>
-      <li>Tap the preset to overwrite and confirm. You'll see <b>Saved &hellip;</b>.</li>
+      <li>Tap the preset, then choose:
+        <ul>
+          <li><b>Save current view here</b> to store where the camera is pointing now.</li>
+          <li><b>Rename&hellip;</b> to change the button's name (up to 24 characters). The saved
+            position stays the same.</li>
+        </ul>
+      </li>
     </ol>
     <ul>
-      <li>Edit mode turns itself off after one save, so a stray tap can't overwrite anything else.
-        Tap <b>Done</b> to leave without saving.</li>
-      <li>Saving replaces the old position for everyone using that preset. Every save is recorded in
-        the server log.</li>
-      <li>After a save, check that your next move works. If the camera ignores it, just press again.</li>
+      <li>Edit mode turns itself off after each change, so a stray tap can't change anything else.
+        Tap <b>Done</b> or <b>Cancel</b> to leave without changing anything.</li>
+      <li>Changes apply to everyone using that preset, and other phones update within a couple of
+        seconds. Every change is recorded in the server log.</li>
+      <li>After saving a position, check that your next move works. If the camera ignores it, just
+        press again.</li>
     </ul>
   </details>
 
@@ -123,7 +130,7 @@
       <li><b>Camera doesn't move:</b> check the preview updates. If it's frozen too, the camera may
         be off or restarting (it can take a minute after power-up).</li>
       <li><b>A preset goes somewhere odd:</b> it may never have been saved. Aim the camera and save
-        it (see &ldquo;Saving a preset position&rdquo;).</li>
+        it (see &ldquo;Saving a position or renaming a preset&rdquo;).</li>
       {% if wards %}
       <li><b>&ldquo;&hellip;isn't one of the selected ward's presets&rdquo;:</b> someone changed the
         ward on another phone. Pick your ward again.</li>

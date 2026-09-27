@@ -160,3 +160,19 @@ body.help a:not(.help-back) { color: #93c5fd; }
 .help-contact-name { font-weight: 700; font-size: 1.05rem; margin: 4px 0; }
 .help-contact-links { display: flex; flex-direction: column; gap: 6px; }
 .help-contact-links a { color: #93c5fd; text-decoration: none; font-size: 1rem; overflow-wrap: anywhere; }
+
+/* ---- edit-mode action sheet ---- */
+.sheet {
+  position: fixed; inset: 0; z-index: 200; background: rgba(0,0,0,0.6);
+  display: flex; align-items: flex-end; justify-content: center; padding: 12px;
+}
+.sheet[hidden] { display: none; }
+.sheet-box {
+  width: 100%; max-width: 420px; background: #111827; border: 1px solid #334155;
+  border-radius: 16px; padding: 14px; display: flex; flex-direction: column; gap: 8px;
+}
+.sheet-title { font-weight: 800; font-size: 1.1rem; text-align: center; }
+.sheet-sub { color: #94a3b8; font-size: 0.8rem; text-align: center; margin-bottom: 4px; }
+.sheet-box button { padding: 13px; font-weight: 600; }
+.sheet-box .sheet-save { background: #b45309; color: #fff7ed; }
+.sheet-box .sheet-cancel { background: transparent; color: #94a3b8; }

@@ -1,4 +1,5 @@
-let presetData = window.PEW_PRESETS || { shared: [], wards: [], active_ward: null, home_slot: 1 };
+let presetData = window.PEW_PRESETS || { shared: [], wards: [], active_ward: null, home_slot: 1, version: 0 };
+const NAME_MAX = 24;  // keep in sync with presets.NAME_MAX
 let speed = 6;
 
 const toast = document.getElementById("toast");
@@ -95,19 +96,55 @@ function presetButton(p) {
   const b = document.createElement("button");
   b.textContent = p.name;
   b.addEventListener("click", async () => {
-    if (!editing) {
-      await post(`/preset/recall/${p.slot}`);
-      flash(p.name);
-      return;
-    }
-    const where = presetData.active_ward || "No ward";
-    if (!confirm(`Save the current view as "${p.name}" (${where})?`)) return;
-    const j = await post(`/preset/save/${p.slot}`);
-    if (j && j.status) flash(`Saved ${p.name}`);
-    setEditing(false);  // one save per trip into edit mode
+    if (editing) { openSheet(p); return; }
+    await post(`/preset/recall/${p.slot}`);
+    flash(p.name);
   });
   return b;
 }
+
+// ---- edit-mode action sheet: save position / rename ----
+const sheet = document.getElementById("presetSheet");
+let sheetPreset = null;
+function openSheet(p) {
+  sheetPreset = p;
+  document.getElementById("sheetTitle").textContent = p.name;
+  document.getElementById("sheetSub").textContent = presetData.active_ward || "No ward";
+  sheet.hidden = false;
+}
+function closeSheet(done) {
+  sheet.hidden = true;
+  sheetPreset = null;
+  if (done) setEditing(false);  // one change per trip into edit mode
+}
+document.getElementById("sheetCancel").addEventListener("click", () => closeSheet(false));
+sheet.addEventListener("click", e => { if (e.target === sheet) closeSheet(false); });
+document.getElementById("sheetSave").addEventListener("click", async () => {
+  const p = sheetPreset;
+  const j = await post(`/preset/save/${p.slot}`);
+  if (j && j.status) flash(`Saved ${p.name}`);
+  closeSheet(true);
+});
+document.getElementById("sheetRename").addEventListener("click", async () => {
+  const p = sheetPreset;
+  const name = prompt(`New name for "${p.name}" (max ${NAME_MAX} characters):`, p.name);
+  if (name === null || name.trim() === p.name) { closeSheet(false); return; }
+  try {
+    const r = await fetch(`/preset/rename/${p.slot}`, {
+      method: "POST", credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    const j = await r.json();
+    if (!r.ok) { flash("⚠ " + (j.error || r.statusText)); return; }
+    presetData = j;
+    renderPresets();
+    flash(j.status);
+    closeSheet(true);
+  } catch (e) {
+    flash("⚠ network");
+  }
+});
 
 function renderPresets() {
   // One set at a time: the selected ward's presets, or the "No ward" set.
@@ -207,7 +244,8 @@ async function refreshZoomStatus() {
     if (r.ok) {
       const st = await r.json();
       renderZoomStatus(st);
-      if ((st.active_ward || null) !== (presetData.active_ward || null)) reloadPresets();
+      if ((st.active_ward || null) !== (presetData.active_ward || null) ||
+          st.presets_version !== presetData.version) reloadPresets();
     }
   } catch (e) { /* network blip — ignore */ }
 }

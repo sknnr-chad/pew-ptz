@@ -280,3 +280,22 @@ def test_help_contact_is_escaped(client, monkeypatch):
     monkeypatch.setattr(server, "CONTACT", {"name": "<script>x</script>", "email": "", "phone": ""})
     body = client.get("/help").get_data(as_text=True)
     assert "<script>x</script>" not in body
+
+
+# ---- renaming from the phone ------------------------------------------------
+
+
+def test_rename_route(client, wards):
+    client.post("/ward", json={"ward": "1st Ward"})
+    r = client.post("/preset/rename/17", json={"name": "Youth Choir"})
+    assert r.status_code == 200
+    j = r.get_json()
+    assert j["status"] == "renamed to Youth Choir"
+    assert [p["name"] for p in j["wards"][0]["presets"]] == ["Bishopric", "Youth Choir"]
+    # Other phones see the version bump on their status poll.
+    assert client.get("/zoom_meeting/state").get_json()["presets_version"] == 1
+
+
+def test_rename_route_rejects_bad_names(client, wards):
+    assert client.post("/preset/rename/1", json={"name": ""}).status_code == 400
+    assert client.post("/preset/rename/16", json={"name": "X"}).status_code == 400  # not on screen
