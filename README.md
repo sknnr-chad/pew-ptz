@@ -218,9 +218,15 @@ inserting or reordering names makes them point at different camera slots.
 - **Same names in every ward is fine:** each ward's "Speaker" is its own camera
   slot, so each ward saves its own framing. A new ward's presets start empty;
   save each one (below) before relying on it.
-- **Saving positions from the phone:** tap **Edit**, aim the camera, tap the
-  preset and confirm. Edit mode turns off after each save. Every save is logged
-  with the phone's IP in `server.log`.
+- **Saving positions and renaming from the phone:** aim the camera, tap
+  **Edit**, tap a preset, then choose **Save current view here** or
+  **Rename…**. Renaming keeps the preset's slot (and saved position) and
+  rewrites `presets.json`, keeping the previous version as
+  `presets.json.bak`; other phones pick up the new name within a couple of
+  seconds. Edit mode turns off after each change, and every save and rename
+  is logged with the phone's IP in `server.log`. Buttons can be renamed but
+  not added or removed from the phone. Note that `presets.json` is rewritten
+  in a standard layout, so hand-added formatting isn't kept.
 - **No `presets.json`?** `PEW_PTZ_PRESETS` names are used as shared presets in
   slots 1–9, exactly as before. A malformed file is logged and ignored the same
   way, so a typo never takes the camera controls away.

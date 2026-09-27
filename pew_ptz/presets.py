@@ -44,6 +44,7 @@ from pathlib import Path
 log = logging.getLogger("pew_ptz.presets")
 
 SHARED_MAX = 15
+NAME_MAX = 24  # longest preset name that still fits a button on a phone
 WARD_BLOCK = 16
 MAX_WARDS = (254 - WARD_BLOCK + 1) // WARD_BLOCK  # 14: last block is 224-239
 
@@ -105,10 +106,15 @@ def parse_config(data: dict) -> tuple[tuple[Preset, ...], tuple[Ward, ...]]:
 
 
 class PresetStore:
-    def __init__(self, shared, wards, state_path: Path | None = None):
+    def __init__(self, shared, wards, state_path: Path | None = None,
+                 config_path: Path | None = None):
         self.shared: tuple[Preset, ...] = tuple(shared)
         self.wards: tuple[Ward, ...] = tuple(wards)
         self.state_path = state_path
+        # Where renames are written. None when presets.json exists but is
+        # broken: overwriting it would destroy whatever the admin was editing.
+        self.config_path = config_path
+        self.version = 0  # bumped on every rename so phones know to refresh
         self._lock = threading.Lock()
         self._active: str | None = None
         self._load_active()
@@ -122,14 +128,14 @@ class PresetStore:
         state_path = path.with_name("active-ward.json")
         fallback = [Preset(n, i + 1) for i, n in enumerate(fallback_names[:SHARED_MAX])]
         if not path.exists():
-            return cls(fallback, (), state_path)
+            return cls(fallback, (), state_path, config_path=path)
         try:
             shared, wards = parse_config(json.loads(path.read_text(encoding="utf-8")))
         except (OSError, ValueError) as e:
             log.error("ignoring %s (%s); using PEW_PTZ_PRESETS instead", path, e)
-            return cls(fallback, (), state_path)
+            return cls(fallback, (), state_path, config_path=None)
         log.info("loaded %d shared presets and %d wards from %s", len(shared), len(wards), path)
-        return cls(shared, wards, state_path)
+        return cls(shared, wards, state_path, config_path=path)
 
     # ---- active ward ------------------------------------------------------
 
@@ -179,6 +185,51 @@ class PresetStore:
             return ward.presets[0].slot
         return self.shared[0].slot if self.shared else 1
 
+    # ---- renaming -------------------------------------------------------------
+
+    def rename(self, slot: int, new_name: str) -> Preset:
+        """Rename one of the presets on screen (the active ward's, or No
+        ward's). The slot, and so the saved camera position, is unchanged.
+        Writes presets.json; the previous version is kept as presets.json.bak."""
+        name = " ".join(str(new_name).split())  # trim, collapse whitespace
+        if not name:
+            raise ValueError("name can't be blank")
+        if len(name) > NAME_MAX:
+            raise ValueError(f"name is too long (max {NAME_MAX} characters)")
+        if self.config_path is None:
+            raise ValueError("presets.json has an error; fix it on the host PC before renaming")
+        with self._lock:
+            ward = self._ward(self._active)
+            source = ward.presets if ward else self.shared
+            old = next((p for p in source if p.slot == slot), None)
+            if old is None:
+                raise ValueError(f"slot {slot} isn't one of the selected ward's presets")
+            if any(p.name.lower() == name.lower() and p.slot != slot for p in source):
+                raise ValueError(f'"{name}" is already used in this set')
+            renamed = tuple(Preset(name, p.slot) if p.slot == slot else p for p in source)
+            if ward:
+                wards = tuple(Ward(w.name, renamed) if w is ward else w for w in self.wards)
+                shared = self.shared
+            else:
+                wards, shared = self.wards, renamed
+            self._write_config(shared, wards)
+            self.shared, self.wards = shared, wards
+            self.version += 1
+            return old
+
+    def _write_config(self, shared, wards) -> None:
+        data = {
+            "shared": [p.name for p in shared],
+            "wards": [{"name": w.name, "presets": [p.name for p in w.presets]} for w in wards],
+        }
+        path = self.config_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if path.exists():
+            path.with_suffix(".json.bak").write_bytes(path.read_bytes())
+        tmp = path.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+        os.replace(tmp, path)
+
     def payload(self) -> dict:
         def plist(ps):
             return [{"name": p.name, "slot": p.slot} for p in ps]
@@ -188,4 +239,5 @@ class PresetStore:
             "wards": [{"name": w.name, "presets": plist(w.presets)} for w in self.wards],
             "active_ward": self.active_ward,
             "home_slot": self.home_slot(),
+            "version": self.version,
         }

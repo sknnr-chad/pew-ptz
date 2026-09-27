@@ -93,3 +93,62 @@ def test_home_slot(tmp_path):
     assert store.home_slot() == 32
     store.set_active("3rd Ward")  # no presets of its own
     assert store.home_slot() == 1
+
+
+# ---- renaming ------------------------------------------------------------------
+
+
+def test_rename_ward_preset_keeps_slot_and_writes_file(tmp_path):
+    path = write(tmp_path, CONFIG)
+    store = PresetStore.load(path, [])
+    store.set_active("2nd Ward")
+    store.rename(33, "  Youth   Speaker ")
+    assert store.usable()[33] == Preset("Youth Speaker", 33)
+    saved = json.loads(path.read_text(encoding="utf-8"))
+    assert saved["wards"][1]["presets"] == ["Bishopric", "Youth Speaker", "Youth"]
+    assert saved["wards"][0] == CONFIG["wards"][0]          # other wards untouched
+    assert saved["shared"] == CONFIG["shared"]
+    assert json.loads((tmp_path / "presets.json.bak").read_text()) == CONFIG
+    assert store.version == 1
+    # Survives a restart
+    reloaded = PresetStore.load(path, [])
+    assert reloaded.wards[1].presets[1] == Preset("Youth Speaker", 33)
+
+
+def test_rename_no_ward_preset(tmp_path):
+    path = write(tmp_path, CONFIG)
+    store = PresetStore.load(path, [])
+    store.rename(2, "Podium")
+    assert [p.name for p in store.shared] == ["Speaker", "Podium", "Wide"]
+
+
+def test_rename_without_file_creates_it(tmp_path):
+    path = tmp_path / "presets.json"
+    store = PresetStore.load(path, ["Speaker", "Choir"])
+    store.rename(1, "Pulpit")
+    assert json.loads(path.read_text()) == {"shared": ["Pulpit", "Choir"], "wards": []}
+
+
+def test_rename_refused_when_file_is_broken(tmp_path):
+    path = tmp_path / "presets.json"
+    path.write_text("{ oops", encoding="utf-8")
+    store = PresetStore.load(path, ["Speaker"])
+    with pytest.raises(ValueError, match="has an error"):
+        store.rename(1, "Pulpit")
+    assert path.read_text() == "{ oops"  # admin's file not clobbered
+
+
+@pytest.mark.parametrize(
+    ("slot", "name", "message"),
+    [
+        (1, "   ", "blank"),
+        (1, "x" * 25, "too long"),
+        (1, "wide", "already used"),
+        (16, "Anything", "isn't one of"),   # 1st Ward slot while No ward is selected
+    ],
+)
+def test_rename_rejections(tmp_path, slot, name, message):
+    store = PresetStore.load(write(tmp_path, CONFIG), [])
+    with pytest.raises(ValueError, match=message):
+        store.rename(slot, name)
+    assert store.version == 0
