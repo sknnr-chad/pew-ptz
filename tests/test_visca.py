@@ -101,3 +101,12 @@ def test_preset_set_followed_by_stop(visca, cam_socket):
     visca.preset_set(20)
     assert _recv(cam_socket)[1] == bytes([0x81, 0x01, 0x04, 0x3F, 0x01, 20, 0xFF])
     assert _recv(cam_socket)[1] == bytes([0x81, 0x01, 0x06, 0x01, 1, 1, 0x03, 0x03, 0xFF])
+
+
+def test_relative_move_bytes(visca, cam_socket):
+    visca.pan_tilt_relative(3, -3)
+    _, payload = _recv(cam_socket)
+    assert payload == bytes([0x81, 0x01, 0x06, 0x03, 8, 8,
+                             0, 0, 0, 3,           # +3 pan
+                             0xF, 0xF, 0xF, 0xD,   # -3 tilt (two's complement)
+                             0xFF])

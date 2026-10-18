@@ -76,6 +76,18 @@ class ViscaIP:
     def pan_tilt_stop(self):
         return self.pan_tilt(PAN_STOP, TILT_STOP, 1, 1)
 
+    def pan_tilt_relative(self, d_pan: int, d_tilt: int, pan_speed: int = 8, tilt_speed: int = 8):
+        """Move by exactly d_pan / d_tilt position units (Pan-tiltDrive
+        RelativePosition). Signed; the camera handles the motion and stops."""
+        ps = _clamp(pan_speed, 1, PAN_SPEED_MAX)
+        ts = _clamp(tilt_speed, 1, TILT_SPEED_MAX)
+
+        def nib(v: int) -> list[int]:
+            v &= 0xFFFF
+            return [(v >> 12) & 0xF, (v >> 8) & 0xF, (v >> 4) & 0xF, v & 0xF]
+
+        return self._send(bytes([0x81, 0x01, 0x06, 0x03, ps, ts, *nib(d_pan), *nib(d_tilt), 0xFF]))
+
     # ---- zoom ----
 
     def zoom_tele(self, speed: int = 4):

@@ -46,11 +46,35 @@ function bindHold(btn, onStart, onEnd) {
   btn.addEventListener("pointercancel", end);
 }
 
+// Fine (speed 1): a quick tap nudges a small exact step; holding past
+// NUDGE_HOLD_MS creeps at the slowest speed until released.
+const FINE_SPEED = 1;
+const NUDGE_HOLD_MS = 250;
 document.querySelectorAll(".dpad button[data-dir]").forEach(btn => {
   const dir = btn.dataset.dir;
+  let holdTimer = null;
+  let driving = false;
   bindHold(btn,
-    () => post(`/ptz/move/${dir}?speed=${speed}`),
-    () => post(`/ptz/stop`));
+    () => {
+      if (speed !== FINE_SPEED) { post(`/ptz/move/${dir}?speed=${speed}`); return; }
+      driving = false;
+      holdTimer = setTimeout(() => {
+        holdTimer = null;
+        driving = true;
+        post(`/ptz/move/${dir}?speed=${FINE_SPEED}`);
+      }, NUDGE_HOLD_MS);
+    },
+    () => {
+      if (speed !== FINE_SPEED) { post(`/ptz/stop`); return; }
+      if (holdTimer) {            // released quickly: a tap
+        clearTimeout(holdTimer);
+        holdTimer = null;
+        post(`/ptz/nudge/${dir}`);
+      } else if (driving) {
+        driving = false;
+        post(`/ptz/stop`);
+      }
+    });
 });
 
 document.querySelectorAll("button[data-zoom]").forEach(btn => {

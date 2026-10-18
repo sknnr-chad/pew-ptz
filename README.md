@@ -285,6 +285,8 @@ environment variables win over `.env`. Restart the controller after editing it.
 | `PEW_PTZ_TITLE` | `pew-ptz` | Browser-tab and home-screen title, e.g. `Chapel PTZ` |
 | `PEW_PTZ_CONTACT_NAME`, `PEW_PTZ_CONTACT_EMAIL`, `PEW_PTZ_CONTACT_PHONE` | unset | Shown as a "Need help?" box at the top of the help page, with tap-to-call and tap-to-email links. Keep them in `.env` so personal details stay out of the repo. |
 | `PEW_PTZ_COPY_SETTLE_SECONDS` | `5` | Seconds the "Copy No-ward positions" action waits for the camera to reach each shot before saving it. |
+| `PEW_PTZ_NUDGE_STEP` | `3` | Fine mode: how many position units a quick tap on an arrow moves the camera (1–50). |
+| `PEW_PTZ_NUDGE_TILT_INVERT` | unset | Set to `1` if tapping up in Fine mode nudges the camera down. |
 | `PEW_PTZ_SKIP_FOCUS_CHECK` | unset | Set to `1` to bypass the "Zoom must be foreground" guard. Useful for UI testing on a dev box without Zoom. |
 
 ---
@@ -313,8 +315,10 @@ operator can see when Zoom has lost focus; window titles are never sent.
 
 - **Sticky live preview** — `<img>` polls the camera's snapshot URL ~2.5 fps
   and floats at the top of the page as the operator scrolls.
-- **D-pad** with diagonals, **hold-to-move** (release = stop) at slow / med /
-  fast. Defaults to slow — easier to land a frame on a person.
+- **D-pad** with diagonals, **hold-to-move** (release = stop) at fine / slow /
+  med / fast. Defaults to slow — easier to land a frame on a person. In
+  **Fine**, a quick tap nudges an exact small step (`PEW_PTZ_NUDGE_STEP`) and
+  holding creeps at the camera's slowest speed.
 - **HOME** button recalls preset 1 (typically "Speaker") — the most-used
   framing.
 - **Up to N named presets** — recall on tap. The web UI is recall-only by
