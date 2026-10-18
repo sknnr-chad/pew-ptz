@@ -367,3 +367,33 @@ def test_copy_cancel(client, wards, camera, monkeypatch):
 def test_help_explains_remote_buttons(client, wards):
     body = client.get("/help").get_data(as_text=True)
     assert "handheld remote" in body and "Ward presets are phone-only" in body
+
+
+# ---- Fine mode nudges -----------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("direction", "d_pan", "d_tilt"),
+    [("right", 3, 0), ("left", -3, 0), ("up", 0, 3), ("down", 0, -3), ("down_left", -3, -3)],
+)
+def test_nudge_directions(client, camera, direction, d_pan, d_tilt):
+    r = client.post(f"/ptz/nudge/{direction}")
+    assert r.status_code == 200
+    assert camera.calls == [("pan_tilt_relative", (d_pan, d_tilt), {})]
+
+
+def test_nudge_step_is_clamped(client, camera):
+    client.post("/ptz/nudge/right?step=999")
+    client.post("/ptz/nudge/right?step=0")
+    assert [c[1][0] for c in camera.calls] == [50, 1]
+
+
+def test_nudge_tilt_invert(client, camera, monkeypatch):
+    monkeypatch.setattr(server, "NUDGE_TILT_SIGN", -1)
+    client.post("/ptz/nudge/up")
+    assert camera.calls == [("pan_tilt_relative", (0, -3), {})]
+
+
+def test_nudge_unknown_direction(client, camera):
+    assert client.post("/ptz/nudge/sideways").status_code == 400
+    assert camera.calls == []

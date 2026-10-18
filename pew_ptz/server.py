@@ -99,6 +99,11 @@ SKIP_FOCUS_CHECK = _env("SKIP_FOCUS_CHECK", "").lower() in ("1", "true", "yes")
 # to each preset before saving it. The camera's replies can't be relied on to
 # say when it has arrived, so this is a fixed wait.
 COPY_SETTLE_SECONDS = float(_env("COPY_SETTLE_SECONDS", "5"))
+# Fine mode: a quick tap on an arrow moves exactly this many position units.
+# Measured on the RL500: speed 6 taps move ~12 units, a 40-unit shift is small
+# but visible. Set NUDGE_TILT_INVERT=1 if tapping up nudges the camera down.
+NUDGE_STEP = int(_env("NUDGE_STEP", "3"))
+NUDGE_TILT_SIGN = -1 if _env("NUDGE_TILT_INVERT", "").lower() in ("1", "true", "yes") else 1
 
 # Log to a rotating file when PEW_PTZ_LOG_DIR is set (the Task Scheduler launch
 # uses pythonw.exe so stdout is gone — without this we'd be flying blind).
@@ -311,6 +316,25 @@ def ptz_move(direction: str):
     pan_dir, tilt_dir = DIRS[direction]
     camera.pan_tilt(pan_dir, tilt_dir, pan_speed=speed, tilt_speed=speed)
     return jsonify({"status": f"moving {direction}"})
+
+
+# Direction -> (pan sign, tilt sign) for relative nudges. Pan right and tilt
+# up are positive in VISCA position units.
+NUDGE_SIGNS = {
+    "up": (0, 1), "down": (0, -1), "left": (-1, 0), "right": (1, 0),
+    "up_left": (-1, 1), "up_right": (1, 1), "down_left": (-1, -1), "down_right": (1, -1),
+}
+
+
+@app.post("/ptz/nudge/<direction>")
+def ptz_nudge(direction: str):
+    """Fine mode tap: move a small, exact step instead of driving."""
+    if direction not in NUDGE_SIGNS:
+        return jsonify({"error": "unknown direction"}), 400
+    step = max(1, min(50, request.args.get("step", NUDGE_STEP, type=int)))
+    sp, st = NUDGE_SIGNS[direction]
+    camera.pan_tilt_relative(sp * step, st * step * NUDGE_TILT_SIGN)
+    return jsonify({"status": f"nudged {direction}", "step": step})
 
 
 @app.post("/ptz/stop")
