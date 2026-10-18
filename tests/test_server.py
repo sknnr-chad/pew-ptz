@@ -1,3 +1,5 @@
+import os
+
 import pytest
 
 from pew_ptz import server
@@ -23,9 +25,17 @@ def test_static_assets_served(client):
 
 
 def test_healthz_is_minimal(client):
+    # Process facts the restart scripts need, nothing about the desktop or
+    # the camera.
     r = client.get("/healthz")
     assert r.status_code == 200
-    assert set(r.get_json()) == {"ok", "uptime_s", "keyboard_ok"}
+    j = r.get_json()
+    assert set(j) == {"ok", "uptime_s", "keyboard_ok", "pid", "started_at", "version",
+                      "build", "restart_needed"}
+    assert j["pid"] == os.getpid()
+    assert j["build"] == server.RUNNING_BUILD
+    assert j["started_at"] == int(server.START_TIME)
+    assert server.CAMERA_IP not in r.get_data(as_text=True)
 
 
 def test_state_never_includes_window_title(client, monkeypatch):
@@ -397,3 +407,48 @@ def test_nudge_tilt_invert(client, camera, monkeypatch):
 def test_nudge_unknown_direction(client, camera):
     assert client.post("/ptz/nudge/sideways").status_code == 400
     assert camera.calls == []
+
+
+# ---- version, restart-needed and page caching ----
+
+def test_state_reports_build_for_open_pages(client):
+    j = client.get("/zoom_meeting/state").get_json()
+    assert j["build"] == server.RUNNING_BUILD
+    assert j["started_at"] == int(server.START_TIME)
+    assert j["restart_needed"] is False
+
+
+def test_index_embeds_the_build_the_state_reports(client):
+    # app.js compares the two to know when to reload itself.
+    body = client.get("/").get_data(as_text=True)
+    state = client.get("/zoom_meeting/state").get_json()
+    assert f'window.PEW_BUILD = "{state["build"]}";' in body
+    assert f"window.PEW_STARTED = {state['started_at']};" in body
+
+
+class _Watcher:
+    def __init__(self, needed):
+        self.needed = needed
+
+    def restart_needed(self):
+        return self.needed
+
+
+def test_restart_needed_when_code_on_disk_changed(client, monkeypatch):
+    monkeypatch.setattr(server, "build_watcher", _Watcher(True))
+    assert client.get("/healthz").get_json()["restart_needed"] is True
+    assert client.get("/zoom_meeting/state").get_json()["restart_needed"] is True
+    assert "A newer version is installed" in client.get("/help").get_data(as_text=True)
+
+
+def test_help_shows_version_and_restart_steps(client):
+    body = client.get("/help").get_data(as_text=True)
+    assert server.VERSION in body
+    assert server.RUNNING_BUILD in body
+    assert r"scripts\update.ps1" in body
+    assert "A newer version is installed" not in body
+
+
+def test_pages_are_not_cached(client):
+    for path in ("/", "/help"):
+        assert client.get(path).headers["Cache-Control"] == "no-cache"

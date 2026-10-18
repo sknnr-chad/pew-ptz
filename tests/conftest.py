@@ -10,6 +10,11 @@ import os
 
 os.environ.setdefault("PEW_PTZ_CAMERA_IP", "127.0.0.1")
 os.environ.setdefault("PEW_PTZ_SKIP_FOCUS_CHECK", "1")
+# Keep a developer's own .env and log settings out of the test run: a bad
+# value there would stop the import, and a log dir would collect test noise.
+os.environ["PEW_PTZ_ENV_FILE"] = os.path.join(os.path.dirname(__file__), "no-such.env")
+os.environ.pop("PEW_PTZ_LOG_DIR", None)
+os.environ.pop("PEW_PTZ_SERVER_PORT", None)
 
 import json  # noqa: E402
 from pathlib import Path  # noqa: E402

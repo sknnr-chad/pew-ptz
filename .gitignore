@@ -15,6 +15,14 @@ dist/
 .pytest_cache/
 
 *.log
+*.log.*
+logs/
+
+# Runtime leftovers in the install folder (presets/state backups and temp
+# files) and the launcher wrapper that pre-supervisor installs generated
+*.bak
+*.tmp
+scripts/launch.cmd
 
 # Output of scripts/probe-camera.ps1
 probe-presets.json

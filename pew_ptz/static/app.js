@@ -1,6 +1,12 @@
 let presetData = window.PEW_PRESETS || { shared: [], wards: [], active_ward: null, home_slot: 1, version: 0 };
 const NAME_MAX = 24;  // keep in sync with presets.NAME_MAX
 let speed = 6;
+// Screen wake lock state, shared with the version check so a reload can hand
+// it on to the new page (see "keep screen awake" below).
+const wake = { armed: false, needsTap: false, carried: false };
+// Set when the controller restarted: its assumed Zoom state starts over at
+// ON AIR, so the operator should check Zoom until a toggle or a real reading.
+let restartedNotice = false;
 
 const toast = document.getElementById("toast");
 let toastTimer = null;
@@ -27,17 +33,20 @@ async function post(path) {
 }
 
 // ---- hold-to-move for D-pad ----
+let holdsActive = 0;  // buttons held right now; the page never reloads mid-hold
 function bindHold(btn, onStart, onEnd) {
   let active = false;
   const start = (e) => {
     e.preventDefault();
     if (active) return;
     active = true;
+    holdsActive++;
     onStart();
   };
   const end = (e) => {
     if (!active) return;
     active = false;
+    holdsActive = Math.max(0, holdsActive - 1);
     onEnd();
   };
   btn.addEventListener("pointerdown", start);
@@ -144,6 +153,7 @@ function renderCopy(c) {
   } else if (copyWasRunning) {
     flash(c.result === "done" ? `Copied ${c.done} positions into ${c.ward}`
         : c.result === "cancelled" ? `Stopped after ${c.done} of ${c.total}`
+        : c.result == null ? "⚠ Copy interrupted by a controller restart"
         : `⚠ Copy failed (${c.result})`);
   }
   copyWasRunning = !!c.running;
@@ -247,16 +257,19 @@ renderPresets();
 
 // ---- zoom meeting ----
 document.getElementById("airBtn").addEventListener("click", async () => {
+  restartedNotice = false;
   const j = await post("/zoom_meeting/toggle_air");
   if (j && j.status) flash("Toggled video + mic");
   refreshZoomStatus();
 });
 document.getElementById("vidBtn").addEventListener("click", async () => {
+  restartedNotice = false;
   const j = await post("/zoom_meeting/toggle_video");
   if (j && j.status) flash("Toggled video");
   refreshZoomStatus();
 });
 document.getElementById("micBtn").addEventListener("click", async () => {
+  restartedNotice = false;
   const j = await post("/zoom_meeting/toggle_mic");
   if (j && j.status) flash("Toggled mic");
   refreshZoomStatus();
@@ -289,6 +302,11 @@ function renderZoomStatus(s) {
   else if (!s.zoom_focused) warnings.push("⚠ " + (s.foreground_process || "no window") + " in front of Zoom");
   if (!s.uia_available) warnings.push("UIA off");
   else if (!s.observed) warnings.push(s.in_meeting === false ? "no meeting" : "toolbar hidden");
+  if (s.observed) restartedNotice = false;  // real state again
+  if (restartedNotice) warnings.push("⚠ Controller restarted · check Zoom's mic and video");
+  if (wake.needsTap) warnings.push("Tap anywhere to keep the screen on");
+  // Last, so nothing above it moves when it appears.
+  if (s.restart_needed) warnings.push("Update waiting · controls still work · tell whoever looks after this PC");
   zoomStatusEl.replaceChildren(...warnings.map(text => {
     const span = document.createElement("span");
     span.className = "pill warn";
@@ -296,11 +314,60 @@ function renderZoomStatus(s) {
     return span;
   }));
 }
+// ---- server version ----
+// After the controller restarts on new code, a page that was left open still
+// runs the old script against the new server. Reload it as soon as nothing is
+// in progress: no button held, no preset sheet or edit mode, no copy running.
+const PAGE_BUILD = window.PEW_BUILD || null;
+let serverStarted = window.PEW_STARTED || null;
+const RELOADED_KEY = "pew_ptz_reloaded_at";
+const CARRY_KEY = "pew_ptz_carry";  // what a reload hands on to the new page
+function sessionGet(key) {
+  try { return sessionStorage.getItem(key); } catch (e) { return null; }  // private mode
+}
+function sessionSet(key, value) {
+  try { sessionStorage.setItem(key, value); } catch (e) { /* private mode */ }
+}
+(function takeOverFromReload() {
+  const carried = sessionGet(CARRY_KEY);
+  if (!carried) return;
+  try { sessionStorage.removeItem(CARRY_KEY); } catch (e) { /* ignore */ }
+  try {
+    const c = JSON.parse(carried);
+    restartedNotice = !!c.restarted;
+    wake.carried = !!c.wake;
+  } catch (e) { /* ignore */ }
+})();
+function busy() {
+  return holdsActive > 0 || !sheet.hidden || editing || copyWasRunning;
+}
+async function checkServerVersion(st) {
+  if (st.started_at && serverStarted && st.started_at !== serverStarted) {
+    // A new server process: its assumed Zoom state starts over at ON AIR, and
+    // presets.json may have been edited before the restart.
+    restartedNotice = true;
+    reloadPresets();
+  }
+  if (st.started_at) serverStarted = st.started_at;
+  if (!st.build || !PAGE_BUILD || st.build === PAGE_BUILD || busy()) return;
+  if (Date.now() - (Number(sessionGet(RELOADED_KEY)) || 0) < 30000) return;  // don't loop
+  // Only trade this working page for one that actually loads.
+  try {
+    const r = await fetch("/", { cache: "no-store", credentials: "same-origin" });
+    if (!r.ok || !(await r.text()).includes(st.build)) return;
+  } catch (e) { return; }
+  if (busy()) return;
+  sessionSet(RELOADED_KEY, String(Date.now()));
+  sessionSet(CARRY_KEY, JSON.stringify({ restarted: restartedNotice, wake: wake.armed }));
+  location.reload();
+}
+
 async function refreshZoomStatus() {
   try {
     const r = await fetch("/zoom_meeting/state", { credentials: "same-origin" });
     if (r.ok) {
       const st = await r.json();
+      await checkServerVersion(st);
       renderZoomStatus(st);
       renderCopy(st.copy);
       if ((st.active_ward || null) !== (presetData.active_ward || null) ||
@@ -321,13 +388,14 @@ setInterval(refreshZoomStatus, 2000);
 //
 // Both paths arm on the first user gesture (browser autoplay rules)
 // and re-engage when the tab becomes visible again, since the OS
-// releases the lock when the page is backgrounded.
+// releases the lock when the page is backgrounded. After an automatic
+// reload (see "server version") the new page re-arms straight away and
+// shows a pill asking for a tap if the browser won't allow that.
 //
 // Video assets adapted from NoSleep.js (MIT, Rich Tibbett).
 (function() {
   let wakeLock = null;
   let video = null;
-  let armed = false;
 
   function makeVideo() {
     const v = document.createElement("video");
@@ -362,21 +430,32 @@ setInterval(refreshZoomStatus, 2000);
   }
 
   async function enable() {
-    if (await tryNativeLock()) return;
-    await tryVideoFallback();
+    if (await tryNativeLock()) return true;
+    return tryVideoFallback();
   }
 
   async function armOnce() {
-    if (armed) return;
-    armed = true;
+    if (wake.armed) return;
+    wake.armed = true;
+    wake.needsTap = false;
     document.removeEventListener("pointerdown", armOnce);
     await enable();
   }
 
   document.addEventListener("pointerdown", armOnce, { once: true });
   document.addEventListener("visibilitychange", () => {
-    if (armed && document.visibilityState === "visible") enable();
+    if (wake.armed && document.visibilityState === "visible") enable();
   });
+  if (wake.carried) {
+    enable().then(ok => {
+      if (ok) {
+        wake.armed = true;
+        document.removeEventListener("pointerdown", armOnce);
+      } else if (!wake.armed) {
+        wake.needsTap = true;  // pill until the first tap arms it
+      }
+    });
+  }
 })();
 
 // ---- rule-of-thirds overlay toggle ----

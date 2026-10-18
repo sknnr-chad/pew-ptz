@@ -20,7 +20,7 @@ dependencies = [
 dev = ["ruff~=0.16.9", "pytest~=9.1"]
 
 [project.scripts]
-pew-ptz = "pew_ptz.server:main"
+pew-ptz = "pew_ptz.cli:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -35,6 +35,10 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+# Embeds PowerShell source, where long pipelines read better unbroken.
+"tests/test_powershell.py" = ["E501"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
