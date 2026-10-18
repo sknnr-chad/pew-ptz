@@ -28,6 +28,7 @@
   .\probe-camera.ps1 -ReadOnly
   .\probe-camera.ps1 -Slots 100,127,128,254
   .\probe-camera.ps1 -VerifyOnly        # after power-cycling the camera
+  .\probe-camera.ps1 -FineMove          # how small a movement the camera can make
 #>
 [CmdletBinding()]
 param(
@@ -40,6 +41,7 @@ param(
   [int[]] $Slots        = @(64, 100, 127, 128, 192, 228, 254),
   [switch]$ReadOnly,
   [switch]$VerifyOnly,
+  [switch]$FineMove,
   [switch]$Force,
   [string]$ResultsFile  = (Join-Path $PWD "probe-presets.json"),
   [int]   $Tolerance    = 8,    # position units a recall may miss by
@@ -389,6 +391,84 @@ function Write-Summary {
   Write-Head "Summary"
   foreach ($k in $summary.Keys) { Write-Host ("  {0,-18} {1}" -f $k, $summary[$k]) }
   Close-Transport
+}
+
+# ---- Fine movement test (-FineMove) ------------------------------------------
+# Measures how small a D-pad movement can be: short taps at low speeds, and the
+# relative-move command. Moves the camera (pan only, small amounts) and returns
+# it to where it started. Doesn't touch any presets.
+
+function Send-Stop {
+  # Twice: if the camera drops one, it must not keep panning.
+  [void](Invoke-Visca ([byte[]](0x81, 0x01, 0x06, 0x01, 0x01, 0x01, 0x03, 0x03, 0xFF)))
+  [void](Invoke-Visca ([byte[]](0x81, 0x01, 0x06, 0x01, 0x01, 0x01, 0x03, 0x03, 0xFF)))
+}
+
+function Measure-Tap([int]$speed, [int]$ms) {
+  [void](Set-Absolute @{ pan = $start.pan; tilt = $start.tilt; zoom = $null })
+  $before = Get-Position
+  [void](Invoke-Visca ([byte[]](0x81, 0x01, 0x06, 0x01, $speed, 0x01, 0x02, 0x03, 0xFF)))  # pan right
+  Start-Sleep -Milliseconds $ms
+  Send-Stop
+  $after = Wait-Settled
+  if ($null -eq $before -or $null -eq $after) { return $null }
+  return $after.pan - $before.pan
+}
+
+if ($FineMove) {
+  if ("$($summary.visca)" -notlike "ok*" -or $null -eq $start) {
+    Write-Fail "needs working VISCA and position readback"
+    Write-Summary
+    exit 1
+  }
+  Write-Head "Fine movement (pan right, then back)"
+  Write-Host "  The camera will make a series of small pans and return to where it started." -ForegroundColor Yellow
+  if (-not $Force) {
+    $ans = Read-Host "  Type YES to continue"
+    if ($ans -ne "YES") { $summary.fine_move = "cancelled"; Write-Summary; exit 0 }
+  }
+
+  Write-Info ("{0,-10} {1,-10} {2}" -f "speed", "tap (ms)", "pan moved (units)")
+  $smallest = $null
+  foreach ($t in @(@(1, 100), @(1, 250), @(1, 500), @(3, 100), @(3, 250), @(6, 100), @(6, 250))) {
+    $d = Measure-Tap $t[0] $t[1]
+    $shown = if ($null -eq $d) { "(no reading)" } else { "$d" }
+    Write-Host ("        {0,-10} {1,-10} {2}" -f $t[0], $t[1], $shown)
+    if ($null -ne $d -and $d -gt 0 -and ($null -eq $smallest -or $d -lt $smallest.d)) {
+      $smallest = @{ d = $d; speed = $t[0]; ms = $t[1] }
+    }
+  }
+  if ($null -ne $smallest) {
+    $summary.smallest_tap = "$($smallest.d) units (speed $($smallest.speed), $($smallest.ms) ms tap)"
+  } else {
+    $summary.smallest_tap = "no movement measured"
+  }
+
+  # Relative move: 81 01 06 03 VV WW 0Y0Y0Y0Y 0Z0Z0Z0Z FF (pan by Y, tilt by Z)
+  Write-Info "relative move (move exactly N units):"
+  $rel = @()
+  foreach ($n in @(2, 5, 20)) {
+    [void](Set-Absolute @{ pan = $start.pan; tilt = $start.tilt; zoom = $null })
+    $before = Get-Position
+    $cmd = [byte[]](0x81, 0x01, 0x06, 0x03, 0x08, 0x08) + (Split-Nibbles $n) + (Split-Nibbles 0) + [byte[]](0xFF)
+    $r = Invoke-Move $cmd "relative move by $n"
+    $after = Wait-Settled
+    if (-not $r.ok) {
+      Write-Host ("        by {0,-4} rejected ({1})" -f $n, $r.error)
+      $rel += "by $n rejected"
+    } elseif ($null -ne $before -and $null -ne $after) {
+      $moved = $after.pan - $before.pan
+      Write-Host ("        by {0,-4} moved {1}" -f $n, $moved)
+      $rel += "by $n -> $moved"
+    }
+  }
+  $summary.relative_move = $rel -join "; "
+
+  [void](Set-Absolute @{ pan = $start.pan; tilt = $start.tilt; zoom = $null })
+  Write-Info "camera returned to $(Format-Pos (Get-Position))"
+  Write-Info "For scale: the preset test moved 40 units between test spots."
+  Write-Summary
+  exit 0
 }
 
 if ($VerifyOnly) {
