@@ -37,13 +37,18 @@ Any of these can go in a .env file in the working directory (see dotenv.py);
 real environment variables take precedence.
     PEW_PTZ_SKIP_FOCUS_CHECK      set to 1 to bypass the "Zoom must be
                                   foreground" guard (useful for UI testing)
+
+Run it with `python -m pew_ptz` (see cli.py), or under the supervisor with
+`python -m pew_ptz.supervise` as the Scheduled Task does.
 """
 
 from __future__ import annotations
 
 import ctypes
+import faulthandler
 import logging
 import os
+import socket
 import sys
 import threading
 import time
@@ -54,7 +59,8 @@ from pathlib import Path
 from flask import Flask, jsonify, render_template, request
 from waitress import serve
 
-from pew_ptz import dotenv
+from pew_ptz import assets, dotenv, version
+from pew_ptz.exitcodes import EXIT_CONFIG, EXIT_OK, EXIT_PORT_IN_USE
 from pew_ptz.presets import PresetStore
 from pew_ptz.visca import (
     PAN_LEFT,
@@ -67,18 +73,86 @@ from pew_ptz.visca import (
 )
 from pew_ptz.zoom_state import ZoomStateReader
 
+# cli.main fingerprints the code before importing anything, so a file that
+# changes while the server is starting shows up as "restart needed" instead
+# of going unnoticed. Imported some other way (tests), fingerprint now.
+RUNNING_BUILD = version.STARTUP_BUILD or version.disk_build()
+
 # Site settings from .env in the install folder (see dotenv.py). Must run
-# before any _env() read below.
-_DOTENV_APPLIED = dotenv.load(os.environ.get("PEW_PTZ_ENV_FILE", ".env"))
+# before any _env() read below. A broken file is reported once logging is up.
+try:
+    _DOTENV_APPLIED = dotenv.load(os.environ.get("PEW_PTZ_ENV_FILE", ".env"))
+    _DOTENV_ERROR = None
+except dotenv.EnvFileError as e:
+    _DOTENV_APPLIED, _DOTENV_ERROR = {}, e
 
 
 def _env(name: str, default: str = "") -> str:
     return os.environ.get("PEW_PTZ_" + name, default)
 
 
+# Log to a rotating file when PEW_PTZ_LOG_DIR is set (the Task Scheduler launch
+# uses pythonw.exe so stdout is gone — without this we'd be flying blind).
+# Set up before the settings below are parsed, so a bad value gets logged.
+def _setup_logging():
+    log_dir = _env("LOG_DIR")
+    handlers: list[logging.Handler] = []
+    if sys.stdout is not None:  # None under pythonw
+        handlers.append(logging.StreamHandler(sys.stdout))
+    if log_dir:
+        Path(log_dir).mkdir(parents=True, exist_ok=True)
+        fh = RotatingFileHandler(
+            Path(log_dir) / "server.log",
+            maxBytes=1_000_000, backupCount=5, encoding="utf-8",
+        )
+        handlers.append(fh)
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        handlers=handlers or [logging.NullHandler()],
+    )
+
+_setup_logging()
+log = logging.getLogger("pew_ptz")
+
+if _DOTENV_ERROR is not None:
+    log.error("Can't use the settings file: %s.", _DOTENV_ERROR)
+    raise SystemExit(EXIT_CONFIG)
+
+
+def _config_error(name: str, raw: str, why: str):
+    log.error("Bad setting PEW_PTZ_%s=%r: %s. Fix it in .env or the environment.",
+              name, raw, why)
+    raise SystemExit(EXIT_CONFIG)
+
+
+def _env_int(name: str, default: int, lo: int, hi: int) -> int:
+    raw = _env(name, str(default))
+    try:
+        value = int(raw)
+    except ValueError:
+        _config_error(name, raw, "expected a whole number")
+    if not lo <= value <= hi:
+        _config_error(name, raw, f"expected {lo} to {hi}")
+    return value
+
+
+def _env_float(name: str, default: float, lo: float) -> float:
+    raw = _env(name, str(default))
+    try:
+        value = float(raw)
+    except ValueError:
+        _config_error(name, raw, "expected a number")
+    if not value >= lo:
+        _config_error(name, raw, f"expected at least {lo}")
+    return value
+
+
 CAMERA_IP = _env("CAMERA_IP", "192.168.100.88")
-VISCA_PORT = int(_env("VISCA_PORT", "52381"))
-SERVER_PORT = int(_env("SERVER_PORT", "8080"))
+VISCA_PORT = _env_int("VISCA_PORT", 52381, 1, 65535)
+SERVER_PORT = _env_int("SERVER_PORT", 8080, 1, 65535)
+# 0.0.0.0 so phones on the LAN can connect; the tests bind loopback instead.
+BIND_HOST = "0.0.0.0"
 CAMERA_SNAPSHOT_PATH = _env("CAMERA_SNAPSHOT_PATH", "/snapshot.jpg")
 PRESETS = [
     p.strip() for p in _env(
@@ -98,37 +172,28 @@ SKIP_FOCUS_CHECK = _env("SKIP_FOCUS_CHECK", "").lower() in ("1", "true", "yes")
 # "Copy No-ward positions into this ward": how long to let the camera travel
 # to each preset before saving it. The camera's replies can't be relied on to
 # say when it has arrived, so this is a fixed wait.
-COPY_SETTLE_SECONDS = float(_env("COPY_SETTLE_SECONDS", "5"))
+COPY_SETTLE_SECONDS = _env_float("COPY_SETTLE_SECONDS", 5.0, 0.0)
 # Fine mode: a quick tap on an arrow moves exactly this many position units.
 # Measured on the RL500: speed 6 taps move ~12 units, a 40-unit shift is small
 # but visible. Set NUDGE_TILT_INVERT=1 if tapping up nudges the camera down.
-NUDGE_STEP = int(_env("NUDGE_STEP", "3"))
+NUDGE_STEP = _env_int("NUDGE_STEP", 3, 1, 50)
 NUDGE_TILT_SIGN = -1 if _env("NUDGE_TILT_INVERT", "").lower() in ("1", "true", "yes") else 1
 
-# Log to a rotating file when PEW_PTZ_LOG_DIR is set (the Task Scheduler launch
-# uses pythonw.exe so stdout is gone — without this we'd be flying blind).
-def _setup_logging():
-    log_dir = _env("LOG_DIR")
-    handlers: list[logging.Handler] = [logging.StreamHandler(sys.stdout)]
-    if log_dir:
-        Path(log_dir).mkdir(parents=True, exist_ok=True)
-        fh = RotatingFileHandler(
-            Path(log_dir) / "server.log",
-            maxBytes=1_000_000, backupCount=5, encoding="utf-8",
-        )
-        handlers.append(fh)
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-        handlers=handlers,
-    )
-
-_setup_logging()
-log = logging.getLogger("pew_ptz")
-
 camera = ViscaIP(CAMERA_IP, VISCA_PORT)
-app = Flask(__name__)
 START_TIME = time.time()
+VERSION = version.describe()
+build_watcher = version.BuildWatcher(RUNNING_BUILD)
+
+# Templates and static files are served from memory (see assets.py), so an
+# update on disk can't mix with the running version.
+app = Flask(__name__, static_folder=None)
+assets.install(
+    app,
+    assets.snapshot_templates(Path(app.root_path) / "templates"),
+    assets.snapshot_static(Path(app.root_path) / "static"),
+    last_modified=START_TIME,
+)
+
 zoom_reader = ZoomStateReader(poll_interval=1.5)
 presets = PresetStore.load(PRESETS_FILE, PRESETS)
 
@@ -238,6 +303,11 @@ def _public_state() -> dict:
         "active_ward": presets.active_ward,  # lets other phones notice a ward change
         "presets_version": presets.version,  # ...and a rename
         "copy": _copy_state(),
+        # A page reloads itself when the build changes (the server restarted
+        # on new code) and shows a pill while restart_needed.
+        "build": RUNNING_BUILD,
+        "started_at": int(START_TIME),
+        "restart_needed": build_watcher.restart_needed(),
         "focus_check_active": focus_active,
         # Source-of-truth metadata so the UI can show observed vs assumed:
         "observed": uia["observed"],
@@ -276,6 +346,15 @@ DIRS = {
 
 # ---- Routes --------------------------------------------------------------
 
+@app.after_request
+def _no_cache_pages(response):
+    # Pages are rendered per request; make sure a phone never shows a cached
+    # copy from before a restart. (Static files already get no-cache + ETag.)
+    if response.mimetype == "text/html":
+        response.headers["Cache-Control"] = "no-cache"
+    return response
+
+
 @app.route("/")
 def index():
     return render_template(
@@ -284,6 +363,8 @@ def index():
         camera_ip=CAMERA_IP,
         camera_snapshot_path=CAMERA_SNAPSHOT_PATH,
         presets=presets.payload(),
+        build=RUNNING_BUILD,
+        started_at=int(START_TIME),
     )
 
 
@@ -305,6 +386,10 @@ def help_page():
         contact=CONTACT if any(CONTACT.values()) else None,
         # tel: links want digits (and a leading +) only
         contact_tel="".join(c for c in CONTACT["phone"] if c.isdigit() or c == "+"),
+        version=VERSION,
+        build=RUNNING_BUILD,
+        started=time.strftime("%Y-%m-%d %H:%M", time.localtime(START_TIME)),
+        restart_needed=build_watcher.restart_needed(),
     )
 
 
@@ -504,10 +589,17 @@ def preset_rename(n: int):
 
 @app.get("/healthz")
 def healthz():
+    # The scripts use pid, started_at and build to prove that the process
+    # answering is the one they just started, on the code they just installed.
     return jsonify({
         "ok": True,
         "uptime_s": int(time.time() - START_TIME),
         "keyboard_ok": _kbd is not None,
+        "pid": os.getpid(),
+        "started_at": int(START_TIME),
+        "version": VERSION,
+        "build": RUNNING_BUILD,
+        "restart_needed": build_watcher.restart_needed(),
     })
 
 
@@ -579,8 +671,87 @@ def http_toggle_air():
     return jsonify({"status": "toggled video + mic", **_public_state()})
 
 
-def main():
-    log.info("pew-ptz starting on http://0.0.0.0:%s", SERVER_PORT)
+class PortInUse(OSError):
+    def __init__(self, port: int, error: OSError, live: bool):
+        super().__init__(f"port {port} is in use: {error}")
+        self.port, self.error, self.live = port, error, live
+
+
+def _listening(port: int) -> bool:
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=3):
+            return True
+    except OSError:
+        return False
+
+
+def bind_listener(port: int, host: str = "0.0.0.0", wait_s: float = 10.0) -> socket.socket:
+    """Claim the port so that no second copy can share it, then hand the
+    socket to waitress. Waitress on its own sets SO_REUSEADDR, which on
+    Windows lets a second server bind the same port without any error while
+    the first one keeps answering, so an old server can survive a "restart"
+    unnoticed. Raises PortInUse if the port is taken; retries for up to wait_s
+    first unless something is clearly answering on it."""
+    deadline = time.monotonic() + wait_s
+    while True:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):  # Windows
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+            else:  # elsewhere this only allows rebinding over TIME_WAIT leftovers
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            sock.bind((host, port))
+            sock.listen(1024)
+            return sock
+        except OSError as e:
+            sock.close()
+            live = _listening(port)
+            if live or time.monotonic() >= deadline:
+                raise PortInUse(port, e, live) from e
+            time.sleep(1.0)
+
+
+def _log_uncaught() -> None:
+    """Under pythonw there is no stderr, so send crashes to the log. Native
+    crashes skip these hooks; faulthandler writes them to stderr, which the
+    supervisor saves as server-stderr.log."""
+    def hook(exc_type, exc, tb):
+        log.critical("uncaught exception", exc_info=(exc_type, exc, tb))
+
+    def thread_hook(args):
+        if args.exc_type is SystemExit:
+            return
+        name = args.thread.name if args.thread else "?"
+        log.critical("uncaught exception in thread %s", name,
+                     exc_info=(args.exc_type, args.exc_value, args.exc_traceback))
+
+    sys.excepthook = hook
+    threading.excepthook = thread_hook
+    if sys.stderr is not None:
+        try:
+            faulthandler.enable(file=sys.stderr)
+        except (AttributeError, OSError, ValueError):  # stderr without a real file
+            pass
+
+
+def main() -> int:
+    _log_uncaught()
+    log.info("pew-ptz %s (build %s, pid %d) starting on http://%s:%s",
+             VERSION, RUNNING_BUILD, os.getpid(), BIND_HOST, SERVER_PORT)
+    # Claim the port before touching the camera or Zoom, so a second copy
+    # exits without side effects.
+    try:
+        sock = bind_listener(SERVER_PORT, BIND_HOST)
+    except PortInUse as e:
+        if e.live:
+            log.error("Port %d is already in use (%s) and something is answering on it - "
+                      "probably another pew-ptz. Find the owner with: netstat -ano | "
+                      "findstr :%d. Not starting.", e.port, e.error, e.port)
+        else:
+            log.error("Can't bind port %d (%s) and nothing is answering on it. Windows may "
+                      "have reserved it; check: netsh int ipv4 show excludedportrange "
+                      "protocol=tcp. Not starting.", e.port, e.error)
+        return EXIT_PORT_IN_USE
     log.info("  Camera:        %s:%s", CAMERA_IP, VISCA_PORT)
     if _DOTENV_APPLIED:
         log.info("  .env settings: %s", ", ".join(sorted(_DOTENV_APPLIED)))
@@ -605,7 +776,8 @@ def main():
     # Waitress instead of Flask's dev server. It doesn't write per-request
     # access lines, so the rotating log stays quiet despite the 2s polling.
     # 8 threads: each phone holds a status poll plus pan/zoom presses.
-    serve(app, host="0.0.0.0", port=SERVER_PORT, threads=8)
+    serve(app, sockets=[sock], threads=8)
+    return EXIT_OK
 
 
 if __name__ == "__main__":

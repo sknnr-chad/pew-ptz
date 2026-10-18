@@ -148,7 +148,7 @@ function Receive-Reply {
   } catch { return $null }
 }
 
-# Returns @{ ok; replies; error } — ok when a completion (9y 5z) arrives.
+# Returns @{ ok; replies; error } - ok when a completion (9y 5z) arrives.
 function Invoke-Visca([byte[]]$payload, [switch]$Inquiry) {
   $ptype = 0x0100
   if ($Inquiry) { $ptype = 0x0110 }

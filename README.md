@@ -120,17 +120,32 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
 - Install Python 3.14 via winget if missing
 - Create `.venv` and install the package
 - Open Windows Firewall on TCP 8080 (Private profile only)
-- Register a Scheduled Task **At logon of the operator user** with
-  restart-on-failure (runs under the user session so `pynput` can reach Zoom)
+- Register a Scheduled Task **At logon of the operator user** (runs under the
+  user session so `pynput` can reach Zoom). It runs a small supervisor that
+  restarts the server if it ever crashes.
 - Drop a desktop shortcut to `http://localhost:8080`
+- Start the task and wait until the new server answers
 
 Defaults match the reference deployment: install dir `C:\tools\pew-ptz`,
 operator user `Chapel-AV`. Override with
-`-InstallDir`, `-TaskUser`, `-Port` if you need to.
+`-InstallDir`, `-TaskUser`, `-Port` if you need to. The scripts work in both
+Windows PowerShell 5.1 and PowerShell 7.
 
 After install, log in as the operator user (or reboot if auto-login is set)
 and hit `http://<host-pc-lan-ip>:8080` from the operator's phone on the
 same Wi-Fi.
+
+**Updating:** run `.\scripts\update.ps1` from an elevated PowerShell (after the
+same `Set-ExecutionPolicy` line as above). It checks first, then stops the
+controller, pulls, reinstalls, restarts and confirms the new version is the one
+answering; see [Updating the app](docs/troubleshooting.md#updating-the-app).
+**Restarting:** `.\scripts\restart.ps1`, or sign out and back in; see
+[Restarting the service](docs/troubleshooting.md#restarting-the-service).
+Don't `git pull` on its own: the running server keeps its old version, new
+dependencies aren't installed, and phones show *Update waiting* until someone
+runs `update.ps1`. Installs from before `update.ps1` existed need a one-time
+manual upgrade; see
+[troubleshooting](docs/troubleshooting.md#upgrading-an-install-from-before-the-supervisor).
 
 **Required Zoom setting (one-time):**
 **Settings → Meetings & Webinars → Controls → "Keep meeting controls visible"**.
@@ -148,7 +163,7 @@ py -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -e .
 $env:PEW_PTZ_CAMERA_IP = "192.168.1.50"   # your camera's LAN IP
-pew-ptz
+pew-ptz                                    # or: pew-ptz --port 9000
 ```
 
 Then on the phone: `http://<your-laptop-ip>:8080`. The Zoom Meeting card
@@ -270,8 +285,11 @@ slots with `-Slots`, and use `-CameraIp` if the camera isn't at the default.
 
 All config is environment variables. Put site-specific ones in a **`.env`**
 file in the install folder (copy `.env.example`). It's git-ignored and survives
-reinstalls, unlike `scripts\launch.cmd`, which the installer rewrites. Real
-environment variables win over `.env`. Restart the controller after editing it.
+reinstalls. Real environment variables win over `.env`, and the `--port` and
+`--log-dir` command-line options (which the installer's task uses) win over
+both. Restart the controller after editing it. A value that isn't valid (for
+example `PEW_PTZ_NUDGE_STEP=lots`) stops the server with a message in
+`server.log` naming the setting, rather than being silently replaced.
 
 | Var | Default | Notes |
 |---|---|---|
@@ -280,7 +298,7 @@ environment variables win over `.env`. Restart the controller after editing it.
 | `PEW_PTZ_SERVER_PORT` | `8080` | HTTP listen port (served by Waitress) |
 | `PEW_PTZ_CAMERA_SNAPSHOT_PATH` | `/snapshot.jpg` | HTTP path on the camera that returns a JPEG (see Compatibility table above) |
 | `PEW_PTZ_PRESETS` | (9 chapel presets) | Comma-separated. Slot N on the camera maps to the Nth name (1-indexed). Example: `Wide,Speaker,Audience,Stage Left,Stage Right`. Ignored when `presets.json` exists. |
-| `PEW_PTZ_LOG_DIR` | unset | If set, writes `server.log` (rotating, 1 MB × 5) here. The installer points this at `<InstallDir>\logs`. |
+| `PEW_PTZ_LOG_DIR` | unset | If set, writes `server.log` (rotating, 1 MB × 5) here; under the supervisor also `supervisor.log` and `server-stderr.log`. The installer points this at `<InstallDir>\logs`. |
 | `PEW_PTZ_PRESETS_FILE` | `presets.json` | Shared + per-ward presets (see [Per-ward presets](#per-ward-presets)). Relative to the working directory, which the installer sets to `<InstallDir>`. |
 | `PEW_PTZ_TITLE` | `pew-ptz` | Browser-tab and home-screen title, e.g. `Chapel PTZ` |
 | `PEW_PTZ_CONTACT_NAME`, `PEW_PTZ_CONTACT_EMAIL`, `PEW_PTZ_CONTACT_PHONE` | unset | Shown as a "Need help?" box at the top of the help page, with tap-to-call and tap-to-email links. Keep them in `.env` so personal details stay out of the repo. |
@@ -304,8 +322,10 @@ already reachable directly; proxying it through Flask would add Python in
 the 400ms snapshot hot path for no real gain in a LAN-only deployment. If you care about gating the video,
 restrict the camera's own network access.
 
-`/healthz` is intended for external monitoring and returns only uptime and
-whether the keyboard controller loaded. The main UI's state endpoint does
+`/healthz` is intended for external monitoring and the update scripts. It
+returns only process facts: uptime, whether the keyboard controller loaded, the
+process ID and start time, the version and build, and whether a newer version
+is waiting for a restart. The main UI's state endpoint does
 report the name of the host PC's foreground program (e.g. `zoom.exe`) so the
 operator can see when Zoom has lost focus; window titles are never sent.
 
@@ -321,10 +341,10 @@ operator can see when Zoom has lost focus; window titles are never sent.
   holding creeps at the camera's slowest speed.
 - **HOME** button recalls preset 1 (typically "Speaker") — the most-used
   framing.
-- **Up to N named presets** — recall on tap. The web UI is recall-only by
-  design (no `/preset/set` HTTP route) so an operator can't accidentally
-  overwrite a preset mid-event. Train them via the camera's web UI or IR
-  remote.
+- **Up to N named presets** — recall on tap. Saving a position or renaming a
+  preset happens only in Edit mode (see [Per-ward presets](#per-ward-presets)),
+  so an operator can't overwrite one by accident mid-event. The camera's web
+  UI or IR remote work too.
 - **Hold-to-zoom** at a deliberately slow default (2/7).
 - **Autofocus is asserted on at server startup** — the camera can't get
   stuck out of focus after a power-cycle or stray IR poke.
@@ -345,7 +365,12 @@ operator can see when Zoom has lost focus; window titles are never sent.
 pew_ptz/
   __init__.py
   __main__.py        # python -m pew_ptz
+  cli.py             # --port / --log-dir for the server and the supervisor
   server.py          # Flask app: routes, Zoom hotkeys, focus check
+  supervise.py       # python -m pew_ptz.supervise: restarts the server on crashes
+  assets.py          # serves templates and static files from memory
+  version.py         # build fingerprint ("restart needed") and git commit
+  exitcodes.py       # exit codes shared by server and supervisor
   templates/
     index.html       # the phone UI
   static/
@@ -354,8 +379,10 @@ pew_ptz/
   zoom_state.py      # UIA-based Zoom mute/video state reader (Windows)
 scripts/
   install.ps1        # one-shot installer (run as Administrator)
+  update.ps1         # stop, pull, reinstall, restart, verify (Administrator)
+  restart.ps1        # stop every copy, start one, verify (Administrator)
+  pewctl.ps1         # shared helpers for the scripts above
   uninstall.ps1
-  launch.cmd         # generated by install.ps1; sets env vars + launches
 docs/
   architecture.md    # how the pieces fit, porting notes, COM/UIA details
   ptz-cameras.md     # camera compatibility, snapshot URLs, fallbacks
