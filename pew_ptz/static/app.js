@@ -19,23 +19,42 @@ function flash(msg) {
 
 // ---- connection health ----
 // Browsers can't see the Wi-Fi name or signal strength, but they can time the
-// status poll (every 2 s). Slow or occasionally failing polls mean a weak
+// status poll (every 2 s). Consistently slow polls, or repeated failures, mean a weak
 // signal; several failures in a row mean the phone has lost the controller
 // (left the Wi-Fi, or switched to mobile data). Android Chrome also says when
 // the phone is on mobile data; iPhones don't.
 const WIFI = window.PEW_WIFI || null;
 const netBanner = document.getElementById("netBanner");
 const NET_WINDOW = 5;        // recent polls considered
-const NET_SLOW_MS = 600;     // median round trip that counts as weak (LAN is ~20-50 ms)
+const NET_SLOW_MS = 1000;    // median round trip that counts as weak (LAN is ~10-50 ms)
+const NET_WEAK_FAILS = 2;    // failures within the window that count as weak (one is a blip)
 const NET_LOST_FAILS = 3;    // consecutive failures that count as lost (~6 s)
+// Phones freeze a page that's in the background or behind a locked screen, and
+// their Wi-Fi naps; requests caught by that finish late or time out. Ignore
+// everything until the page has been awake for a few seconds.
+const NET_SETTLE_MS = 5000;
 const netRecent = [];        // {ok, ms}
 let netFailsInARow = 0;
+let netQuietUntil = performance.now() + NET_SETTLE_MS;  // the page just loaded
+let netLastSample = performance.now();
+function netSettle() {
+  netRecent.length = 0;
+  netFailsInARow = 0;
+  netQuietUntil = performance.now() + NET_SETTLE_MS;
+  renderNet();
+}
 function noteNet(ok, ms) {
+  const now = performance.now();
+  // Polls run every 2 s; a much longer gap means the page was frozen.
+  if (now - netLastSample > 8000) netSettle();
+  netLastSample = now;
+  if (document.visibilityState !== "visible" || now < netQuietUntil) return;
   netRecent.push({ ok, ms });
   if (netRecent.length > NET_WINDOW) netRecent.shift();
   netFailsInARow = ok ? 0 : netFailsInARow + 1;
   renderNet();
 }
+document.addEventListener("visibilitychange", netSettle);
 function onMobileData() {
   const c = navigator.connection;
   return !!(c && c.type === "cellular");
@@ -51,8 +70,8 @@ function renderNet() {
       : `Lost connection to the controller. Check Wi-Fi is on and connected to ${wifiNamed()}.`;
   } else {
     const times = netRecent.filter(s => s.ok).map(s => s.ms).sort((a, b) => a - b);
-    const median = times.length ? times[Math.floor(times.length / 2)] : 0;
-    if (netRecent.some(s => !s.ok) || median > NET_SLOW_MS) {
+    const median = times.length >= 3 ? times[Math.floor(times.length / 2)] : 0;
+    if (netRecent.filter(s => !s.ok).length >= NET_WEAK_FAILS || median > NET_SLOW_MS) {
       level = "weak";
       text = "Weak Wi-Fi: controls may lag. Move closer to the router" +
         (WIFI ? ` or check you're on "${WIFI}".` : ".");
