@@ -134,6 +134,15 @@
           <td>The app can't read Zoom's state on this PC; states are assumed. Toggles still work.</td></tr>
       <tr><td><span class="pill warn">focus check off</span></td>
           <td>Testing mode: toggles are sent even if Zoom isn't in front.</td></tr>
+      <tr><td><span class="net-banner-sample weak">Weak Wi-Fi</span></td>
+          <td>(At the top of the screen.) The phone's connection to the controller is slow or
+          dropping some messages. Controls may lag; move toward the router or check the phone is
+          on {% if wifi_name %}&ldquo;{{ wifi_name }}&rdquo;{% else %}the right Wi-Fi{% endif %}.</td></tr>
+      <tr><td><span class="net-banner-sample lost">Lost connection</span></td>
+          <td>(At the top of the screen.) The phone can't reach the controller at all: Wi-Fi is
+          off, on another network, or the phone switched to mobile data. It goes away by itself
+          once the phone is back on {% if wifi_name %}&ldquo;{{ wifi_name }}&rdquo;{% else %}the
+          right Wi-Fi{% endif %}. If every phone shows it, the host PC may be off.</td></tr>
       <tr><td><span class="pill warn">Update waiting</span></td>
           <td>Newer files for this app were copied onto the PC. Everything keeps working on the
           current version. Let whoever looks after the PC know; after the meeting they run
@@ -153,7 +162,8 @@
     <summary>Something isn't working</summary>
     <ul>
       <li><b>Page won't load / &ldquo;network&rdquo; warnings:</b> make sure the phone is on the
-        chapel Wi-Fi, not mobile data. The controller runs on the host PC, which must be on and
+        {% if wifi_name %}&ldquo;{{ wifi_name }}&rdquo; Wi-Fi{% else %}chapel Wi-Fi{% endif %}, not
+        mobile data. The controller runs on the host PC, which must be on and
         logged in.</li>
       <li><b>Camera doesn't move:</b> check the preview updates. If it's frozen too, the camera may
         be off or restarting (it can take a minute after power-up).</li>

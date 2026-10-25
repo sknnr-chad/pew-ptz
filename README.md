@@ -301,6 +301,7 @@ example `PEW_PTZ_NUDGE_STEP=lots`) stops the server with a message in
 | `PEW_PTZ_LOG_DIR` | unset | If set, writes `server.log` (rotating, 1 MB × 5) here; under the supervisor also `supervisor.log` and `server-stderr.log`. The installer points this at `<InstallDir>\logs`. |
 | `PEW_PTZ_PRESETS_FILE` | `presets.json` | Shared + per-ward presets (see [Per-ward presets](#per-ward-presets)). Relative to the working directory, which the installer sets to `<InstallDir>`. |
 | `PEW_PTZ_TITLE` | `pew-ptz` | Browser-tab and home-screen title, e.g. `Chapel PTZ` |
+| `PEW_PTZ_WIFI_NAME` | unset | The Wi-Fi network phones should be on. Named in the phone's *Weak Wi-Fi* / *Lost connection* banners and on the help page. |
 | `PEW_PTZ_CONTACT_NAME`, `PEW_PTZ_CONTACT_EMAIL`, `PEW_PTZ_CONTACT_PHONE` | unset | Shown as a "Need help?" box at the top of the help page, with tap-to-call and tap-to-email links. Keep them in `.env` so personal details stay out of the repo. |
 | `PEW_PTZ_COPY_SETTLE_SECONDS` | `5` | Seconds the "Copy No-ward positions" action waits for the camera to reach each shot before saving it. |
 | `PEW_PTZ_NUDGE_STEP` | `3` | Fine mode: how many position units a quick tap on an arrow moves the camera (1–50). |
