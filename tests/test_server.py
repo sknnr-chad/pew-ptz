@@ -458,3 +458,10 @@ def test_fine_is_the_default_speed(client):
     body = client.get("/").get_data(as_text=True)
     assert '<button data-speed="1" class="active">Fine</button>' in body
     assert client.get("/static/app.js").get_data(as_text=True).count("let speed = 1;") == 1
+
+
+def test_wifi_name_reaches_page_and_help(client, monkeypatch):
+    assert "window.PEW_WIFI = null;" in client.get("/").get_data(as_text=True)
+    monkeypatch.setattr(server, "WIFI_NAME", 'Hall "AV"')
+    assert 'window.PEW_WIFI = "Hall \\"AV\\"";' in client.get("/").get_data(as_text=True)
+    assert "&ldquo;Hall &#34;AV&#34;&rdquo;" in client.get("/help").get_data(as_text=True)

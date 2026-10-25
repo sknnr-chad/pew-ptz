@@ -96,6 +96,18 @@ button:active { transform: scale(0.96); background: #0b1220; }
   pointer-events: none;
 }
 .toast.show { opacity: 1; }
+.net-banner {
+  /* Over the top of the preview, right of the help button; fixed, so it never
+     shifts the controls. Taps go through to whatever is underneath. */
+  position: fixed; top: 8px; left: 56px; right: 8px; z-index: 90;
+  max-width: 500px; margin-inline: auto; pointer-events: none;
+  padding: 8px 12px; border-radius: 12px; font-size: 0.85rem; font-weight: 600;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.5);
+}
+.net-banner.weak, .net-banner-sample.weak { background: #92400e; color: #fde68a; }
+.net-banner.lost, .net-banner-sample.lost { background: #b91c1c; color: #fff1f2; }
+.net-banner-sample { display: inline-block; padding: 4px 10px; border-radius: 8px;
+                     font-weight: 600; font-size: 0.85rem; }
 .mode { display: flex; gap: 6px; justify-content: center; align-items: center; margin-top: 8px; }
 .mode-label { font-size: 0.75rem; color: #94a3b8; }
 .mode button { background: #1e293b; padding: 6px 14px; font-size: 0.8rem; }

@@ -162,6 +162,9 @@ PRESETS = [
 ]
 PRESETS_FILE = Path(_env("PRESETS_FILE", "presets.json"))
 PAGE_TITLE = _env("TITLE", "pew-ptz")
+# Named in the phone's "weak Wi-Fi" / "lost connection" messages. In .env,
+# so the network name stays out of the public repo.
+WIFI_NAME = _env("WIFI_NAME").strip()
 # Optional "Need help?" box on the help page. Keep these in .env, not in git.
 CONTACT = {
     "name": _env("CONTACT_NAME").strip(),
@@ -363,6 +366,7 @@ def index():
         camera_ip=CAMERA_IP,
         camera_snapshot_path=CAMERA_SNAPSHOT_PATH,
         presets=presets.payload(),
+        wifi_name=WIFI_NAME or None,
         build=RUNNING_BUILD,
         started_at=int(START_TIME),
     )
@@ -384,6 +388,7 @@ def help_page():
         home=home.name if home else None,
         presets_file_used=PRESETS_FILE.exists(),
         contact=CONTACT if any(CONTACT.values()) else None,
+        wifi_name=WIFI_NAME or None,
         # tel: links want digits (and a leading +) only
         contact_tel="".join(c for c in CONTACT["phone"] if c.isdigit() or c == "+"),
         version=VERSION,

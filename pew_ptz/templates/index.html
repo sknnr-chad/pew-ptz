@@ -21,6 +21,8 @@
 </head>
 <body>
   <a class="help-fab" href="/help" aria-label="Help">?</a>
+  <!-- Connection problems; fixed over the top of the preview so nothing moves. -->
+  <div class="net-banner" id="netBanner" role="status" aria-live="polite" hidden></div>
   <div class="preview-wrap" id="previewWrap">
     <img id="preview" alt="Live preview"
          src="http://{{ camera_ip }}{{ camera_snapshot_path }}" />
@@ -105,7 +107,8 @@
 
 <script>window.PEW_PRESETS = {{ presets | tojson }};
 window.PEW_BUILD = {{ build | default(none) | tojson }};
-window.PEW_STARTED = {{ started_at | default(none) | tojson }};</script>
+window.PEW_STARTED = {{ started_at | default(none) | tojson }};
+window.PEW_WIFI = {{ wifi_name | default(none) | tojson }};</script>
 <script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>
 </html>
