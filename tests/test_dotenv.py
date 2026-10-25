@@ -1,5 +1,7 @@
 import os
 
+import pytest
+
 from pew_ptz import dotenv
 
 
@@ -34,3 +36,21 @@ def test_load_applies_without_overriding(tmp_path, monkeypatch):
 
 def test_missing_file_is_fine(tmp_path):
     assert dotenv.load(tmp_path / "nope.env") == {}
+
+
+def test_utf16_file_from_windows_powershell(tmp_path):
+    # Windows PowerShell 5.1's `>` and Out-File write UTF-16 with a BOM.
+    env = tmp_path / ".env"
+    env.write_bytes("PEW_PTZ_CONTACT_NAME=Zoë\r\n".encode("utf-16"))
+    assert dotenv.read(env) == {"PEW_PTZ_CONTACT_NAME": "Zoë"}
+
+
+@pytest.mark.parametrize("data", [
+    "PEW_PTZ_CONTACT_NAME=Zoë\n".encode("cp1252"),           # Set-Content in 5.1
+    b"A=1\n" + "B=2\n".encode("utf-16-le"),                  # `>>` onto a UTF-8 file
+])
+def test_unreadable_file_is_a_clear_error(tmp_path, data):
+    env = tmp_path / ".env"
+    env.write_bytes(data)
+    with pytest.raises(dotenv.EnvFileError, match="save it as UTF-8"):
+        dotenv.load(env)

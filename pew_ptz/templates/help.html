@@ -134,6 +134,18 @@
           <td>The app can't read Zoom's state on this PC; states are assumed. Toggles still work.</td></tr>
       <tr><td><span class="pill warn">focus check off</span></td>
           <td>Testing mode: toggles are sent even if Zoom isn't in front.</td></tr>
+      <tr><td><span class="pill warn">Update waiting</span></td>
+          <td>Newer files for this app were copied onto the PC. Everything keeps working on the
+          current version. Let whoever looks after the PC know; after the meeting they run
+          <code>scripts\update.ps1</code> to switch over. Open pages reload themselves once
+          it's back.</td></tr>
+      <tr><td><span class="pill warn">&#9888; Controller restarted</span></td>
+          <td>The controller restarted (it does this by itself after a crash). If the Zoom state
+          can't be read, it assumes ON AIR again, so check Zoom's mic and video on the PC. The
+          pill goes away after the next Zoom button tap.</td></tr>
+      <tr><td><span class="pill warn">Tap anywhere to keep the screen on</span></td>
+          <td>The page reloaded itself after an update and the phone wants a tap before it will
+          keep the screen awake.</td></tr>
     </table>
   </details>
 
@@ -170,6 +182,13 @@
       <li>Logs, including every preset save and ward change: <code>logs\server.log</code> in the
         install folder.</li>
       <li>Camera: <code>{{ camera_ip }}</code>. Health check: <a href="/healthz">/healthz</a>.</li>
+      <li>Version <code>{{ version }}</code> (build <code>{{ build }}</code>), running since
+        {{ started }}.{% if restart_needed %} <b>A newer version is installed and takes effect
+        when the controller restarts.</b>{% endif %}</li>
+      <li>To restart the controller: sign out of the host PC and back in, or reboot it. An
+        administrator can run <code>scripts\restart.ps1</code> instead. To install an update, run
+        <code>scripts\update.ps1</code> as administrator; it stops the controller, updates it and
+        starts it again.</li>
     </ul>
   </details>
 

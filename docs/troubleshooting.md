@@ -1,8 +1,13 @@
 # Troubleshooting
 
-> The server runs as a Scheduled Task with output redirected to
-> `C:\tools\pew-ptz\logs\server.log`. There is no console window.
-> `Get-Content C:\tools\pew-ptz\logs\server.log -Tail 80` is your friend.
+> The server runs as a Scheduled Task with no console window. Its logs are in
+> `C:\tools\pew-ptz\logs\`:
+>
+> - `server.log`: the app itself. `Get-Content C:\tools\pew-ptz\logs\server.log -Tail 80`
+>   is your friend.
+> - `supervisor.log`: every start, crash and restart of the server.
+> - `server-stderr.log`: anything the server printed before its log was set up,
+>   and crash dumps that never reach `server.log`.
 
 ## "Page won't load on my phone"
 
@@ -13,8 +18,10 @@
    isolate phone vs. server.
 3. Confirm the server is actually running:
    `Get-ScheduledTaskInfo -TaskName "Pew PTZ Controller"` and look at
-   `LastTaskResult` (0 = running). Or just hit
-   `http://localhost:8080/healthz` from the booth PC.
+   `LastTaskResult` (see [the table below](#what-the-tasks-last-run-result-means)).
+   Or just open `http://127.0.0.1:8080/healthz` on the booth PC (`127.0.0.1`
+   rather than `localhost`, which tries IPv6 first and takes a couple of
+   seconds to fall back).
 4. If the firewall rule went missing:
    `Get-NetFirewallRule -DisplayName "Pew PTZ Controller (TCP 8080)"`.
    Re-run `scripts\install.ps1` to recreate it.
@@ -108,23 +115,163 @@ Two likely causes:
    timeout. Drop it to `0.05` or `0.0` (fire-and-forget) in
    `pew_ptz/server.py` where `ViscaIP` is constructed.
 
-## Restarting the service
+## "The phones say *Update waiting*"
 
-```powershell
-Stop-ScheduledTask  -TaskName "Pew PTZ Controller"
-Start-ScheduledTask -TaskName "Pew PTZ Controller"
-```
+Someone changed the app's files in the install folder (for example with
+`git pull`) without restarting the controller. Nothing is broken: the running
+server keeps serving the version it started with, because it loads its pages
+and scripts into memory at startup.
 
-Or just sign out and back in as the operator user — the task fires at logon.
+After the meeting, an administrator runs [`scripts\update.ps1`](#updating-the-app).
+With nothing new to fetch, it still installs any new dependencies,
+re-registers the task, restarts and verifies. A plain restart or reboot is
+**not** enough after a `git pull` that changed `requirements.txt`: the new code
+would start without its new dependency and keep restarting with exit code 1.
+If someone only edited a file by hand, [`scripts\restart.ps1`](#restarting-the-service)
+is enough. Open phone pages reload themselves once the controller is back.
 
-## Updating the app
+The pill only tracks the app's own files (`pew_ptz\`). A pull that changes
+only `requirements.txt` shows nothing on the phones, but still needs
+`update.ps1`.
+
+## "The server keeps restarting" / "It won't start"
+
+Look at `logs\supervisor.log`. Each line says how the server exited:
+
+- `exit code 0xC0000005 (access violation)` or another `0xC...` code: a crash
+  inside a native library (usually Zoom's UI Automation). The supervisor
+  restarts it after 1 s, then backs off to 5, 10, 20, 40 and 60 s.
+  `logs\server-stderr.log` may have a stack dump.
+- `exit code 1`: a Python error; the traceback is in `server.log` or, if it
+  happened during startup, in `server-stderr.log` (for example a missing
+  dependency after a `git pull` without the installer: run `scripts\update.ps1`).
+- `because of a configuration error`: a bad value in `.env` or the
+  environment, or a `.env` that isn't UTF-8 text. `server.log` names the
+  setting or the file. Fix it, then restart. (Windows PowerShell's `>` and
+  `Out-File` write UTF-16, which is accepted; `Set-Content` writes the ANSI
+  code page, which isn't if a name has accented letters. Notepad's UTF-8 is
+  safest.)
+- `because the port is already in use`: something else is listening on port
+  8080, usually a second copy of the controller. `netstat -ano | findstr :8080`
+  shows the owner's PID. `scripts\restart.ps1` stops every copy and starts one.
+
+### What the task's Last Run Result means
+
+| `LastTaskResult` | Meaning |
+|---|---|
+| `0x41301` (267009) | Running. |
+| `0x41303` (267011) | Never run yet: the operator user hasn't logged on since install. |
+| `0x80041320` | Couldn't start: the operator user isn't logged on. It starts at the next logon. |
+| `0x4E` (78) | Stopped: configuration error (see `server.log`, or `supervisor.log` if the task's own arguments are wrong). |
+| `0x62` (98) | Stopped: port already in use (see `server.log`). |
+| `0x41306` (267014) | Stopped from Task Scheduler (End, `Stop-ScheduledTask`, or a script). |
+| `0` | The server stopped normally. |
+| anything else | The supervisor itself was stopped or died; see `supervisor.log`. |
+
+If `supervisor.log` has nothing new (for example the venv's Python itself
+can't start), run the task's command in a console from the install folder to
+see the error:
 
 ```powershell
 cd C:\tools\pew-ptz
-git pull
-.\scripts\install.ps1   # idempotent: stops the task, upgrades, restarts
+.\.venv\Scripts\python.exe -m pew_ptz.supervise --port 8080 --log-dir logs
 ```
 
-The installer always runs `pip install --upgrade` and re-registers the
-Scheduled Task, so re-running it picks up new dependencies and any changes
-to the launch wrapper.
+## Restarting the service
+
+Anyone at the booth PC: **sign out and back in as the operator user, or
+reboot.** Signing out ends the controller; the task starts it again at logon.
+
+An administrator, from an elevated PowerShell:
+
+```powershell
+cd C:\tools\pew-ptz
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+.\scripts\restart.ps1
+```
+
+`restart.ps1` stops every running copy (and waits until the port is free),
+starts the task, then waits until `/healthz` answers from the new process with
+the code that's on disk. It reads the install folder, user and port from the
+registered task. Ending and running the task from Task Scheduler works too.
+
+## Updating the app
+
+From an elevated PowerShell:
+
+```powershell
+cd C:\tools\pew-ptz
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+.\scripts\update.ps1
+```
+
+`update.ps1` checks everything it can before touching the running controller:
+that git works, that the branch tracks a remote, that the operator user and
+the venv exist, then fetches and lists the incoming commits. Only then does it
+stop the controller, fast-forward to exactly those commits, and re-run
+`install.ps1`, which installs any new dependencies, re-registers the task,
+starts it and confirms the new version is the one answering. If anything fails
+after the controller was stopped, it starts the controller again and prints
+the commands to roll back. `.\scripts\update.ps1 -CheckOnly` runs the checks
+and lists what would come in, without changing anything.
+
+Don't `git pull` on its own while the controller is running. The running
+server keeps working on its old version (the phones show *Update waiting*),
+but a new dependency only gets installed by `update.ps1` or `install.ps1`.
+If you did pull by hand, just run `update.ps1`: with nothing new to fetch it
+still installs, restarts and verifies.
+
+**Local edits.** Some fixes on this page involve editing a file in the install
+folder (for example swapping the pan directions in `visca.py`). After such an
+edit, `restart.ps1` is enough. `update.ps1` keeps local edits when there is
+nothing new to fetch, but refuses to update over them when commits are
+incoming, because the update could overwrite them. Then stash the edit, update,
+and put it back:
+
+```powershell
+git -c safe.directory=C:/tools/pew-ptz stash
+.\scripts\update.ps1
+git -c safe.directory=C:/tools/pew-ptz stash pop
+.\scripts\restart.ps1
+```
+
+`update.ps1` and `install.ps1` run as administrator and execute code from the
+install folder, so only accounts you trust should be able to write to it.
+
+### Upgrading an install from before the supervisor
+
+`update.ps1` doesn't exist on an install that predates it, and the controller
+running there doesn't freeze its files, so it must be stopped before the new
+files arrive. Do this once, outside meeting times, in an **elevated**
+PowerShell. Steps 1 and 2 change nothing, so if either fails the controller
+is still running.
+
+```powershell
+cd C:\tools\pew-ptz
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+$git = @('-c', 'safe.directory=C:/tools/pew-ptz')   # in case another account owns the folder
+
+# 1. No local edits to tracked files (this must print nothing; see "Local edits" above)
+git @git status --porcelain --untracked-files=no
+# 2. Fetch the new code (must succeed)
+git @git fetch
+
+# 3. Stop the old controller, so it never serves half-updated files
+$old = Get-CimInstance Win32_Process -Filter "Name='pythonw.exe'" |
+  Where-Object { $_.CommandLine -match '-m\s+pew_ptz' }
+if (-not $old) { Write-Warning "No running controller found. Is this shell elevated?" }
+$old | ForEach-Object { "Stopping PID $($_.ProcessId)"; Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+
+# 4. Move to exactly the fetched commits, then reinstall, start and verify
+git @git merge --ff-only '@{u}'
+.\scripts\update.ps1
+```
+
+If step 4 fails, the controller is stopped. `Start-ScheduledTask -TaskName
+"Pew PTZ Controller"` (the old task works with the old or the new code) or
+signing out and back in brings it back; then fix what the error names and run
+`.\scripts\update.ps1` again.
+
+Then reload the page once on every phone (or close and reopen the home-screen
+app); from then on pages reload themselves after an update. Until this is done,
+`restart.ps1` refuses to work on the old-style task and says so.

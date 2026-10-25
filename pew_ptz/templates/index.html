@@ -103,7 +103,9 @@
 
   <div class="toast" id="toast"></div>
 
-<script>window.PEW_PRESETS = {{ presets | tojson }};</script>
+<script>window.PEW_PRESETS = {{ presets | tojson }};
+window.PEW_BUILD = {{ build | default(none) | tojson }};
+window.PEW_STARTED = {{ started_at | default(none) | tojson }};</script>
 <script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>
 </html>
