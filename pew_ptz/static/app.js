@@ -17,18 +17,82 @@ function flash(msg) {
   toastTimer = setTimeout(() => toast.classList.remove("show"), 1200);
 }
 
-async function post(path) {
-  try {
-    const r = await fetch(path, { method: "POST", credentials: "same-origin" });
-    const j = await r.json().catch(() => ({}));
-    if (r.status === 409 && j.foreground_process !== undefined) {
-      flash("⚠ Zoom not focused (" + (j.foreground_process || "unknown") + ")");
-    } else if (!r.ok) {
-      flash("⚠ " + (j.error || r.statusText));
+// ---- connection health ----
+// Browsers can't see the Wi-Fi name or signal strength, but they can time the
+// status poll (every 2 s). Slow or occasionally failing polls mean a weak
+// signal; several failures in a row mean the phone has lost the controller
+// (left the Wi-Fi, or switched to mobile data). Android Chrome also says when
+// the phone is on mobile data; iPhones don't.
+const WIFI = window.PEW_WIFI || null;
+const netBanner = document.getElementById("netBanner");
+const NET_WINDOW = 5;        // recent polls considered
+const NET_SLOW_MS = 600;     // median round trip that counts as weak (LAN is ~20-50 ms)
+const NET_LOST_FAILS = 3;    // consecutive failures that count as lost (~6 s)
+const netRecent = [];        // {ok, ms}
+let netFailsInARow = 0;
+function noteNet(ok, ms) {
+  netRecent.push({ ok, ms });
+  if (netRecent.length > NET_WINDOW) netRecent.shift();
+  netFailsInARow = ok ? 0 : netFailsInARow + 1;
+  renderNet();
+}
+function onMobileData() {
+  const c = navigator.connection;
+  return !!(c && c.type === "cellular");
+}
+function wifiNamed() { return WIFI ? `the "${WIFI}" Wi-Fi` : "the right Wi-Fi network"; }
+function renderNet() {
+  let level = null;
+  let text = "";
+  if (!navigator.onLine || netFailsInARow >= NET_LOST_FAILS) {
+    level = "lost";
+    text = onMobileData()
+      ? `This phone is on mobile data and can't reach the camera. Turn Wi-Fi on and join ${wifiNamed()}.`
+      : `Lost connection to the controller. Check Wi-Fi is on and connected to ${wifiNamed()}.`;
+  } else {
+    const times = netRecent.filter(s => s.ok).map(s => s.ms).sort((a, b) => a - b);
+    const median = times.length ? times[Math.floor(times.length / 2)] : 0;
+    if (netRecent.some(s => !s.ok) || median > NET_SLOW_MS) {
+      level = "weak";
+      text = "Weak Wi-Fi: controls may lag. Move closer to the router" +
+        (WIFI ? ` or check you're on "${WIFI}".` : ".");
     }
-    return j;
-  } catch (e) {
-    flash("⚠ network");
+  }
+  netBanner.hidden = !level;
+  netBanner.className = "net-banner" + (level ? " " + level : "");
+  netBanner.textContent = text;
+}
+window.addEventListener("online", renderNet);
+window.addEventListener("offline", renderNet);
+if (navigator.connection) navigator.connection.addEventListener("change", renderNet);
+
+// fetch that gives up after timeoutMs, so a hung request counts as a failure.
+async function fetchWithin(path, opts, timeoutMs) {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), timeoutMs);
+  try { return await fetch(path, { ...opts, signal: ctl.signal }); }
+  finally { clearTimeout(timer); }
+}
+
+async function post(path) {
+  // A stop that doesn't arrive leaves the camera moving, so stops are retried.
+  const isStop = path.endsWith("/stop");
+  for (let attempt = 1; ; attempt++) {
+    try {
+      const r = await fetchWithin(path, { method: "POST", credentials: "same-origin" }, 4000);
+      const j = await r.json().catch(() => ({}));
+      if (r.status === 409 && j.foreground_process !== undefined) {
+        flash("⚠ Zoom not focused (" + (j.foreground_process || "unknown") + ")");
+      } else if (!r.ok) {
+        flash("⚠ " + (j.error || r.statusText));
+      }
+      return j;
+    } catch (e) {
+      noteNet(false, 0);
+      if (isStop && attempt < 3) { await new Promise(res => setTimeout(res, 300)); continue; }
+      flash(isStop ? "⚠ Stop didn't reach the camera. Tap the button again." : "⚠ Didn't reach the controller");
+      return undefined;
+    }
   }
 }
 
@@ -363,8 +427,16 @@ async function checkServerVersion(st) {
 }
 
 async function refreshZoomStatus() {
+  const t0 = performance.now();
+  let r;
   try {
-    const r = await fetch("/zoom_meeting/state", { credentials: "same-origin" });
+    r = await fetchWithin("/zoom_meeting/state", { credentials: "same-origin" }, 4000);
+  } catch (e) {
+    noteNet(false, 0);  // no answer: network trouble
+    return;
+  }
+  noteNet(true, performance.now() - t0);
+  try {
     if (r.ok) {
       const st = await r.json();
       await checkServerVersion(st);
