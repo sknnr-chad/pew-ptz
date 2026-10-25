@@ -452,3 +452,9 @@ def test_help_shows_version_and_restart_steps(client):
 def test_pages_are_not_cached(client):
     for path in ("/", "/help"):
         assert client.get(path).headers["Cache-Control"] == "no-cache"
+
+
+def test_fine_is_the_default_speed(client):
+    body = client.get("/").get_data(as_text=True)
+    assert '<button data-speed="1" class="active">Fine</button>' in body
+    assert client.get("/static/app.js").get_data(as_text=True).count("let speed = 1;") == 1

@@ -1,6 +1,6 @@
 let presetData = window.PEW_PRESETS || { shared: [], wards: [], active_ward: null, home_slot: 1, version: 0 };
 const NAME_MAX = 24;  // keep in sync with presets.NAME_MAX
-let speed = 6;
+let speed = 1;  // Fine; keep in sync with the "active" button in index.html
 // Screen wake lock state, shared with the version check so a reload can hand
 // it on to the new page (see "keep screen awake" below).
 const wake = { armed: false, needsTap: false, carried: false };
