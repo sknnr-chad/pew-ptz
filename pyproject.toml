@@ -17,7 +17,7 @@ dependencies = [
 
 [project.optional-dependencies]
 # Pinned to a minor: ruff adds/changes lint rules between minors.
-dev = ["ruff~=0.16.9", "pytest~=9.1"]
+dev = ["ruff>=0.16.9,<0.18.0", "pytest~=9.1"]
 
 [project.scripts]
 pew-ptz = "pew_ptz.cli:main"
